@@ -10,7 +10,7 @@ DEFAULTS: dict = {
     "asr": {
         "adapter": "elevenlabs", "failover": "", "give_up_after_s": 0,
         "overlap_ms": 2000,
-        "elevenlabs": {"keyterms_max": 100},
+        "elevenlabs": {"keyterms_max": 50},  # realtime cap per docs/vendor-notes.md
         "assemblyai": {"use_domain_prompt": True},
     },
     "segmenter": {"max_words": 45, "max_pending_s": 12},

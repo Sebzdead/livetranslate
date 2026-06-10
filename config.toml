@@ -15,7 +15,8 @@ overlap_ms = 2000
 
 [asr.elevenlabs]
 # endpoint/model fields filled in after doc verification (§13)
-keyterms_max = 100
+# realtime cap is 50 per docs/vendor-notes.md (Task 8); surcharged
+keyterms_max = 50
 
 [asr.assemblyai]
 use_domain_prompt = true
