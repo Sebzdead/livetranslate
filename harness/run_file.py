@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 
+from livetranslate.asr.base import ResilientASR
 from livetranslate.audio import FileSource
 from livetranslate.config import load_config
 from livetranslate.glossary import Glossary
@@ -47,12 +48,19 @@ def main(argv=None) -> int:
         cfg["translate"]["targets"] = args.langs.split(",")
     rtf = args.rtf if args.rtf is not None else cfg["harness"]["rtf"]
     glossary = Glossary.load(cfg["glossary"]["path"], cfg["glossary"]["domain_blurb"])
-    adapter = build_adapter(cfg, args.adapter or cfg["asr"]["adapter"], glossary)
+    _adapter_name = args.adapter or cfg["asr"]["adapter"]
+    resilient = ResilientASR(
+        adapter_factory=lambda: build_adapter(cfg, _adapter_name, glossary),
+        ring=None,  # assigned after Pipeline construction (pipe.ring)
+        overlap_ms=cfg["asr"]["overlap_ms"],
+        give_up_after_s=cfg["asr"]["give_up_after_s"],
+    )
     blocks = {l: glossary.block_for(l) for l in cfg["translate"]["targets"]}
-    pipe = Pipeline(cfg, adapter=adapter, translator=LLMTranslator(cfg["translate"]),
+    pipe = Pipeline(cfg, adapter=resilient, translator=LLMTranslator(cfg["translate"]),
                     glossary_blocks=blocks, domain_blurb=glossary.domain_blurb,
                     enable_display=not args.no_display,
                     glossary_hash=glossary.sha256)
+    resilient.ring = pipe.ring
     pipe.start()
     try:
         for _ in range(args.loop):
