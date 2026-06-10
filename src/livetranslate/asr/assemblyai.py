@@ -167,8 +167,11 @@ class AssemblyAIStreamingAdapter:
         self._send_q.put(None)
         self._sender.join(timeout=timeout_s)
         self._stop.set()
-        self._receiver.join(timeout=timeout_s)
+        # Close the WS BEFORE joining the receiver so its blocking recv()
+        # unblocks immediately (the server usually closes after Terminate,
+        # but this makes the order deterministic).
         try:
             self._ws.close()
         except Exception:   # noqa: BLE001 — already closing
             pass
+        self._receiver.join(timeout=timeout_s)

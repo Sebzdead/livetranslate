@@ -45,3 +45,16 @@ def test_worker_batches_when_queue_deep():
     w.stop(drain=True)
     assert [t.sid for t in out] == list(range(6))
     assert len(calls) < 6              # batching collapsed calls
+
+def test_stop_returns_promptly_on_dead_worker_with_full_queue():
+    # I3: a dead worker (watchdog gave up) with a full queue must not make
+    # stop(drain=True) block forever on the sentinel put.
+    w = TranslationWorker(lang="es",
+                          translator=LLMTranslator(CFG, post=lambda *a: {"ok": True, "text": "T"}),
+                          glossary_block="", domain_blurb="", on_translation=lambda t: None,
+                          maxsize=2)
+    # never started -> thread not alive
+    w.q.put_nowait(sent(0)); w.q.put_nowait(sent(1))    # queue full
+    t0 = time.monotonic()
+    w.stop(drain=True, timeout_s=1)
+    assert time.monotonic() - t0 < 3.0, "stop blocked on full queue of dead worker"

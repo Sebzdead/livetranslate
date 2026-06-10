@@ -1,11 +1,36 @@
 import dataclasses
 import json
+import logging
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
 from .types import Sentence, Translation, StatusEvent, TranscriptEvent
+
+log = logging.getLogger(__name__)
+
+
+def _load_jsonl_tolerant(path: Path, cls) -> list:
+    """Parse a JSONL file into `cls` instances. A malformed LAST line is the
+    signature of a write interrupted by kill -9 / power loss — log and skip it
+    (acceptance §9.5). A malformed line anywhere else is real corruption: raise."""
+    out = []
+    if not path.exists():
+        return out
+    lines = path.read_text(encoding="utf-8").splitlines()
+    last_idx = len(lines) - 1
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            out.append(cls(**json.loads(line)))
+        except (ValueError, TypeError):
+            if i == last_idx:
+                log.warning("%s: torn last line (interrupted write); skipping it", path)
+                continue
+            raise
+    return out
 
 
 class Store:
@@ -83,16 +108,7 @@ class Store:
     def load_resume(session_dir):
         """Rebuild finalized state for --resume. Returns (sentences, translations, next_sid)."""
         session_dir = Path(session_dir)
-        sentences, translations = [], []
-        sp = session_dir / "sentences.jsonl"
-        if sp.exists():
-            for line in sp.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    sentences.append(Sentence(**json.loads(line)))
-        tp = session_dir / "translations.jsonl"
-        if tp.exists():
-            for line in tp.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    translations.append(Translation(**json.loads(line)))
+        sentences = _load_jsonl_tolerant(session_dir / "sentences.jsonl", Sentence)
+        translations = _load_jsonl_tolerant(session_dir / "translations.jsonl", Translation)
         next_sid = (max((s.sid for s in sentences), default=-1)) + 1
         return sentences, translations, next_sid

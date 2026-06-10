@@ -1,6 +1,7 @@
 import logging
 import queue
 import threading
+import time
 
 from .audio import RingBuffer
 from .display.server import DisplayServer, DisplayState
@@ -55,6 +56,7 @@ class Pipeline:
                         if enable_display else None)
         self._seg_thread = threading.Thread(target=self._segment_loop, name="segmenter")
         self._stop = threading.Event()
+        self._draining = False
 
     def _make_worker(self, lang: str) -> TranslationWorker:
         return TranslationWorker(
@@ -120,12 +122,35 @@ class Pipeline:
     def _emit_sentence(self, s: Sentence) -> None:
         self.store.write_sentence(s)
         self.state.add_sentence(s)
-        for w in self.workers.values():
-            w.submit(s)               # blocks only the wedged language (spec §3)
+        # Spec §3: a full translation queue must block the producer for that
+        # language only, NEVER the segmenter. Shed load per-language instead
+        # of blocking: drop the oldest pending sentence for the wedged language
+        # (a gap in one language beats a global stall; the invariant checker
+        # will surface the missing translation).
+        for lang, w in self.workers.items():
+            if self._draining and not w.alive():
+                continue              # dead worker during shutdown: skip it
+            try:
+                w.q.put_nowait(s)
+            except queue.Full:
+                try:
+                    w.q.get_nowait()  # drop oldest pending for this language
+                except queue.Empty:
+                    pass
+                self._on_status(StatusEvent(
+                    level="warn", source=f"translate.{lang}",
+                    message="queue full; dropped oldest pending sentence",
+                    t_wall=time.monotonic()))
+                try:
+                    w.q.put_nowait(s)
+                except queue.Full:
+                    log.warning("translate.%s queue still full; dropping sid=%d",
+                                lang, s.sid)
 
     def shutdown(self) -> None:
         """SIGINT order (spec §5.8): stop source (caller's job) ->
         flush_and_stop ASR -> drain translators (<=15 s) -> close store."""
+        self._draining = True
         self.adapter.flush_and_stop()
         self.event_q.put(None)
         self._seg_thread.join(timeout=10)

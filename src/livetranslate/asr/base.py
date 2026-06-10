@@ -45,6 +45,8 @@ class ResilientASR:
         # _spawn_lock guards the test-and-set so only one thread enters _reconnect.
         self._reconnecting = threading.Event()
         self._spawn_lock = threading.Lock()
+        self._closed = threading.Event()
+        self._reconnect_thread = None
 
     @property
     def name(self):
@@ -70,11 +72,14 @@ class ResilientASR:
 
     def _spawn_reconnect(self) -> None:
         """Atomically test-and-set: only one reconnect thread runs at a time."""
+        if self._closed.is_set():
+            return
         with self._spawn_lock:
             if self._reconnecting.is_set():
                 return
             self._reconnecting.set()
         t = threading.Thread(target=self._reconnect, name="asr-reconnect", daemon=False)
+        self._reconnect_thread = t
         t.start()
 
     def send_audio(self, chunk: AudioChunk) -> None:
@@ -96,10 +101,16 @@ class ResilientASR:
         attempt = 0
         factory = self._factory
         while True:
+            if self._closed.is_set():
+                self._reconnecting.clear()
+                return
             attempt += 1
             self.on_status(status("warn", "asr", f"reconnecting({attempt})"))
             delay = min(self.backoff_max_s, self.backoff_base_s * 2 ** (attempt - 1))
-            time.sleep(delay * random.uniform(0.5, 1.0))
+            # Interruptible backoff: wait() returns True if closed during sleep.
+            if self._closed.wait(delay * random.uniform(0.5, 1.0)):
+                self._reconnecting.clear()
+                return
             try:
                 with self._lock:
                     # Stop the old adapter gracefully (best-effort).
@@ -107,11 +118,15 @@ class ResilientASR:
                         self._adapter.flush_and_stop(timeout_s=1.0)
                     except Exception:    # noqa: BLE001 — old socket already dead
                         pass
+                    # Compute the replay position BEFORE creating the adapter so
+                    # its vendor-relative timestamps map onto the stream timeline.
+                    replay_from = max(0, self.last_final_end_ms - self.overlap_ms)
                     # Create and start the new adapter.
                     self._adapter = factory()
+                    if hasattr(self._adapter, "set_stream_offset"):
+                        self._adapter.set_stream_offset(replay_from)
                     self._adapter.start(self.on_event, self._on_adapter_status)
                     # Replay from ring buffer with overlap.
-                    replay_from = max(0, self.last_final_end_ms - self.overlap_ms)
                     self.on_status(status("info", "asr", f"replaying from {replay_from}ms"))
                     try:
                         for c in self.ring.replay_from(replay_from):
@@ -142,6 +157,13 @@ class ResilientASR:
                     return
 
     def flush_and_stop(self, timeout_s: float = 8.0) -> None:
+        # Signal the reconnect loop FIRST so a SIGINT during an outage cannot
+        # hang on a never-ending backoff loop, and a late successful reconnect
+        # cannot write to a closed store.
+        self._closed.set()
+        t = self._reconnect_thread
+        if t is not None and t.is_alive():
+            t.join(timeout=timeout_s)
         with self._lock:
             if self._adapter:
                 self._adapter.flush_and_stop(timeout_s)

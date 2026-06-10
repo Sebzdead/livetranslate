@@ -219,8 +219,14 @@ class TranslationWorker:
                 self.on_translation(t)
 
     def stop(self, drain: bool = True, timeout_s: float = 15.0) -> None:
-        if drain:
-            self.q.put(None)
+        # A dead worker (e.g. the watchdog gave up restarting it) with a full
+        # queue must never block shutdown: skip the sentinel if the thread is
+        # not alive, and never block indefinitely on a full queue.
+        if drain and self._thread.is_alive():
+            try:
+                self.q.put(None, timeout=1.0)
+            except _queue.Full:
+                pass
             self._thread.join(timeout=timeout_s)
         self._stop.set()
         if self._thread.is_alive():

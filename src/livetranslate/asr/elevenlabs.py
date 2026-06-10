@@ -140,8 +140,10 @@ class ElevenLabsScribeAdapter:
         self._send_q.put(None)
         self._sender.join(timeout=timeout_s)
         self._stop.set()
-        self._receiver.join(timeout=timeout_s)
+        # Close the WS BEFORE joining the receiver so its blocking recv()
+        # unblocks immediately instead of burning the join timeout.
         try:
             self._ws.close()
         except Exception:                            # noqa: BLE001 — already closing
             pass
+        self._receiver.join(timeout=timeout_s)

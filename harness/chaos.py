@@ -41,7 +41,8 @@ def main(argv=None) -> int:
     ap.add_argument("--cuts-ms", required=True,
                     help="comma-separated stream offsets, e.g. 30000,95000,150500")
     args = ap.parse_args(argv)
-    shared_cuts = sorted(int(x) for x in args.cuts_ms.split(","))
+    all_cuts = sorted(int(x) for x in args.cuts_ms.split(","))
+    shared_cuts = list(all_cuts)        # the wrapper pops this copy as it cuts
     orig = run_file.build_adapter
     run_file.build_adapter = lambda cfg, name, g: ChaosWrapper(orig(cfg, name, g), shared_cuts)
     try:
@@ -54,9 +55,17 @@ def main(argv=None) -> int:
     reconnects = sum(1 for e in events
                      if e.get("type") == "status" and "reconnecting" in e.get("message", ""))
     errs = check_invariants(sentences, [], [])
-    assert reconnects >= len(shared_cuts), f"expected >= {len(shared_cuts)} reconnects, saw {reconnects}"
+    assert reconnects >= len(all_cuts), f"expected >= {len(all_cuts)} reconnects, saw {reconnects}"
     dupes = [e for e in errs if "duplicate" in e]
     assert not dupes, dupes
+    # Guard against the gone-mute failure mode: at least one finalized sentence
+    # must end AFTER the last cut, proving the pipeline kept transcribing
+    # (i.e. the reconnect stream offset was applied and finals weren't deduped away).
+    assert sentences, "no sentences finalized at all"
+    last_end = max(s["t_audio_end_ms"] for s in sentences)
+    assert last_end > max(all_cuts), (
+        f"pipeline went mute after a cut: last finalized sentence ends at "
+        f"{last_end}ms but the last cut was at {max(all_cuts)}ms")
     print(f"chaos OK: {reconnects} reconnects, {len(sentences)} sentences, 0 dupes")
     return 0
 
