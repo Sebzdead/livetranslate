@@ -1,4 +1,49 @@
-<!doctype html><html lang="{{LANG}}" dir="{{DIR}}"><head><meta charset="utf-8">
-<title>{{LANG}}</title></head><body><div id="text"></div>
-<script>const es=new EventSource(`/events?lang={{LANG}}`);const fs={{FONT_SCALE}};</script>
-</body></html>
+<!doctype html>
+<html lang="{{LANG}}" dir="{{DIR}}">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>livetranslate — {{LANG}}</title>
+<style>
+  :root { --fg:#e8e8e8; --bg:#111; --dim:#888; }
+  body.light { --fg:#111; --bg:#fafafa; --dim:#777; }
+  body { background:var(--bg); color:var(--fg); margin:0;
+         font:calc(1rem * {{FONT_SCALE}})/1.5 Georgia, "Noto Serif", serif; }
+  #text { max-width: 60rem; margin: 0 auto; padding: 2rem; }
+  p { margin: 0 0 1.2em; }
+  #activity { position: fixed; bottom: .5rem; inset-inline-start: 1rem; color: var(--dim); }
+  #toggle { position: fixed; top: .5rem; inset-inline-end: .5rem;
+            background:none; border:1px solid var(--dim); color:var(--dim);
+            border-radius: 4px; cursor: pointer; padding: .25rem .5rem; }
+</style>
+</head>
+<body>
+<button id="toggle" aria-label="toggle theme">&#9728; / &#9790;</button>
+<div id="text"><p id="current"></p></div>
+<span id="activity" hidden>&#8230;</span>
+<script>
+const lang = "{{LANG}}";
+let autoscroll = true, userScrollTimer = null;
+addEventListener("scroll", () => {
+  autoscroll = false;
+  clearTimeout(userScrollTimer);
+  userScrollTimer = setTimeout(() => { autoscroll = true; }, 4000);
+});
+document.getElementById("toggle").onclick = () => document.body.classList.toggle("light");
+const textEl = document.getElementById("text");
+let para = document.getElementById("current");
+const es = new EventSource(`/events?lang=${lang}`);
+es.onmessage = (m) => {
+  const ev = JSON.parse(m.data);
+  if (ev.type === "translation" || ev.type === "sentence") {
+    if (ev.paragraph_break && para.textContent) {
+      para = document.createElement("p"); textEl.appendChild(para);
+    }
+    para.textContent += (para.textContent ? " " : "") + ev.text;
+    if (autoscroll) scrollTo(0, document.body.scrollHeight);
+  } else if (ev.type === "tail") {
+    document.getElementById("activity").hidden = !ev.text;
+  }
+};
+</script>
+</body>
+</html>

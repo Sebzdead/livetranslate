@@ -1,1 +1,151 @@
-<!doctype html><html><body><h1>operator</h1></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>livetranslate — operator console</title>
+<style>
+  :root { --fg:#e8e8e8; --bg:#111; --dim:#888; --err:#c0392b; --ok:#27ae60; }
+  body { background:var(--bg); color:var(--fg); margin:0;
+         font:0.95rem/1.5 "Menlo","Consolas","Courier New",monospace; }
+  h1 { margin:0; font-size:1rem; font-weight:bold; }
+  #banner { padding:.4rem 1rem; background:var(--ok); color:#fff; display:none; }
+  #banner.error { background:var(--err); display:block; }
+  #banner.info  { background:#555; display:block; }
+  #main { display:grid; grid-template-columns:1fr 22rem; gap:0; height:calc(100vh - 2.2rem); }
+  #transcript-wrap { overflow-y:auto; padding:1rem; border-right:1px solid #333; }
+  #transcript { font-size:.9rem; line-height:1.6; }
+  #transcript p { margin:0 0 .5em; }
+  #tail-span { color:var(--dim); font-style:italic; }
+  #sidebar { overflow-y:auto; padding:1rem; display:flex; flex-direction:column; gap:1.5rem; }
+  #sidebar h2 { margin:0 0 .4rem; font-size:.85rem; text-transform:uppercase;
+                letter-spacing:.08em; color:var(--dim); }
+  #lag-table { border-collapse:collapse; width:100%; font-size:.85rem; }
+  #lag-table th,#lag-table td { text-align:left; padding:.2rem .4rem;
+                                border-bottom:1px solid #333; }
+  #lag-table th { color:var(--dim); font-weight:normal; }
+  .lag-hi { color:#e67e22; }
+  .lag-ok { color:var(--ok); }
+  #stats { font-size:.8rem; color:var(--dim); line-height:1.8; }
+</style>
+</head>
+<body>
+<div id="banner" role="alert"></div>
+<div style="padding:.4rem 1rem; border-bottom:1px solid #333;">
+  <h1>livetranslate — operator console</h1>
+</div>
+<div id="main">
+  <div id="transcript-wrap">
+    <div id="transcript"><span id="tail-span"></span></div>
+  </div>
+  <div id="sidebar">
+    <div>
+      <h2>Translation lag</h2>
+      <table id="lag-table">
+        <thead><tr><th>lang</th><th>lag (sids)</th></tr></thead>
+        <tbody id="lag-body"></tbody>
+      </table>
+    </div>
+    <div id="stats">
+      <div>src events: <span id="cnt-src">0</span></div>
+      <div>status events: <span id="cnt-status">0</span></div>
+      <div>src reconnects: <span id="cnt-reconn">0</span></div>
+    </div>
+  </div>
+</div>
+<script>
+// ---- DOM refs ----
+const transcriptEl = document.getElementById("transcript");
+const tailSpan     = document.getElementById("tail-span");
+const lagBody      = document.getElementById("lag-body");
+const banner       = document.getElementById("banner");
+const cntSrc       = document.getElementById("cnt-src");
+const cntStatus    = document.getElementById("cnt-status");
+const cntReconn    = document.getElementById("cnt-reconn");
+const wrap         = document.getElementById("transcript-wrap");
+
+let srcCount = 0, statusCount = 0, reconnCount = 0;
+let autoscroll = true, userScrollTimer = null;
+
+wrap.addEventListener("scroll", () => {
+  autoscroll = false;
+  clearTimeout(userScrollTimer);
+  userScrollTimer = setTimeout(() => { autoscroll = true; }, 4000);
+});
+
+function scrollDown() {
+  if (autoscroll) wrap.scrollTop = wrap.scrollHeight;
+}
+
+// ---- Source transcript SSE ----
+function connectSrc() {
+  const es = new EventSource("/events?lang=src");
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    srcCount++;
+    cntSrc.textContent = srcCount;
+
+    if (ev.type === "sentence") {
+      // Insert sentence text before the tail span
+      const p = document.createElement("p");
+      p.textContent = ev.text;
+      transcriptEl.insertBefore(p, tailSpan);
+      tailSpan.textContent = "";
+      scrollDown();
+    } else if (ev.type === "tail") {
+      tailSpan.textContent = ev.text ? ev.text : "";
+      scrollDown();
+    }
+  };
+  es.onerror = () => {
+    reconnCount++;
+    cntReconn.textContent = reconnCount;
+    // EventSource will auto-reconnect; just update the counter
+  };
+}
+
+// ---- Status SSE ----
+function connectStatus() {
+  const es = new EventSource("/events?lang=status");
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    statusCount++;
+    cntStatus.textContent = statusCount;
+
+    if (ev.type === "status") {
+      // Update lag table
+      if (ev.lag && typeof ev.lag === "object") {
+        lagBody.innerHTML = "";
+        for (const [lang, lag] of Object.entries(ev.lag)) {
+          const tr = document.createElement("tr");
+          const tdLang = document.createElement("td");
+          const tdLag  = document.createElement("td");
+          tdLang.textContent = lang;
+          tdLag.textContent  = lag;
+          tdLag.className    = lag > 3 ? "lag-hi" : "lag-ok";
+          tr.appendChild(tdLang);
+          tr.appendChild(tdLag);
+          lagBody.appendChild(tr);
+        }
+      }
+      // Show error banner if level is error
+      if (ev.level === "error") {
+        banner.textContent = ev.message || "Error";
+        banner.className = "error";
+      } else if (banner.className === "error") {
+        // Clear error when a clean status arrives
+        banner.className = "";
+        banner.style.display = "none";
+      }
+    }
+  };
+  es.onerror = () => {
+    reconnCount++;
+    cntReconn.textContent = reconnCount;
+  };
+}
+
+connectSrc();
+connectStatus();
+</script>
+</body>
+</html>
