@@ -1,0 +1,6 @@
+__pycache__/
+*.egg-info/
+.venv/
+recordings/
+sessions/
+.DS_Store
