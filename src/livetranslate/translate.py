@@ -1,6 +1,8 @@
 import logging
 import os
+import queue as _queue
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -162,3 +164,64 @@ def _split_numbered(text: str, n: int):
     if len(items) != n:
         return None
     return [body.strip() for _num, body in items]
+
+
+class TranslationWorker:
+    """One thread per enabled language consuming its own ordered queue (spec §5.5).
+    Full queue blocks the producer for this language only (spec §3)."""
+
+    def __init__(self, lang: str, translator: LLMTranslator, glossary_block: str,
+                 domain_blurb: str, on_translation, batch_threshold: int = 3,
+                 batch_max: int = 6, maxsize: int = 256):
+        self.lang, self.translator = lang, translator
+        self.on_translation = on_translation
+        self.batch_threshold, self.batch_max = batch_threshold, batch_max
+        self.q = _queue.Queue(maxsize=maxsize)
+        self._ctx = TransContext(glossary_block=glossary_block, domain_blurb=domain_blurb)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name=f"xlate-{lang}")
+
+    def alive(self) -> bool:
+        return self._thread.is_alive()
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def submit(self, sentence) -> None:
+        self.q.put(sentence)           # blocking: per-language backpressure only
+
+    def _run(self) -> None:
+        while not (self._stop.is_set() and self.q.empty()):
+            try:
+                first = self.q.get(timeout=0.2)
+            except _queue.Empty:
+                continue
+            if first is None:
+                break
+            batch = [first]
+            if self.q.qsize() > self.batch_threshold:
+                while len(batch) < self.batch_max:
+                    try:
+                        nxt = self.q.get_nowait()
+                    except _queue.Empty:
+                        break
+                    if nxt is None:
+                        self._stop.set(); break
+                    batch.append(nxt)
+            if len(batch) == 1:
+                results = [self.translator.translate(batch[0], self.lang, self._ctx)]
+            else:
+                results = self.translator.translate_batch(batch, self.lang, self._ctx)
+            for s, t in zip(batch, results):
+                self._ctx.prev_source = (self._ctx.prev_source + [s.text])[-2:]
+                if t.status == "ok":
+                    self._ctx.prev_target = t.text
+                self.on_translation(t)
+
+    def stop(self, drain: bool = True, timeout_s: float = 15.0) -> None:
+        if drain:
+            self.q.put(None)
+            self._thread.join(timeout=timeout_s)
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=1.0)
