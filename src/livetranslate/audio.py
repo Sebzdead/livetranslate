@@ -83,10 +83,50 @@ class FileSource:
 
 
 class MicSource:
-    """sounddevice capture; implemented in a later task. Defined here so imports resolve."""
+    """Live mic capture via sounddevice.RawInputStream (spec §5.1):
+    16 kHz mono PCM16, block size = chunk_ms. Refuses to start if the
+    configured device substring doesn't match an input device — never
+    silently falls back to the built-in mic."""
 
     def __init__(self, device_substring: str, chunk_ms: int = 100):
         self.device_substring, self.chunk_ms = device_substring, chunk_ms
 
+    def resolve_device(self) -> int:
+        import sounddevice  # lazy: PortAudio loads only when actually capturing
+        if not self.device_substring:
+            raise SystemExit(
+                "audio.device_substring is empty; set it in config.toml to the "
+                "mixing-desk interface name (refusing to default to the built-in mic)")
+        for idx, dev in enumerate(sounddevice.query_devices()):
+            if (dev.get("max_input_channels", 0) > 0
+                    and self.device_substring.lower() in dev.get("name", "").lower()):
+                return idx
+        raise SystemExit(
+            f"audio device matching {self.device_substring!r} not found; refusing to start")
+
     def chunks(self) -> Iterator[AudioChunk]:
-        raise NotImplementedError("MicSource is implemented in M7")
+        import queue as _q
+        import sounddevice
+        device = self.resolve_device()
+        blocksize = 16 * self.chunk_ms          # frames per chunk at 16 kHz
+        buf_q: _q.Queue = _q.Queue(maxsize=64)
+
+        def _callback(indata, frames, time_info, status_flags):
+            if status_flags:
+                log.warning("mic: %s", status_flags)
+            try:
+                buf_q.put_nowait(bytes(indata))
+            except _q.Full:
+                log.error("mic: capture queue full; dropping %d frames", frames)
+
+        t_ms, seq = 0, 0
+        with sounddevice.RawInputStream(samplerate=16000, channels=1, dtype="int16",
+                                        blocksize=blocksize, device=device,
+                                        callback=_callback):
+            while True:
+                pcm = buf_q.get()
+                dur = len(pcm) // BYTES_PER_MS
+                yield AudioChunk(pcm16=pcm, sample_rate=16000, t_start_ms=t_ms,
+                                 duration_ms=dur, seq=seq)
+                t_ms += dur
+                seq += 1
