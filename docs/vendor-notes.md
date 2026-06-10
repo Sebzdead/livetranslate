@@ -245,6 +245,330 @@ Upon commit, the server emits a `committed_transcript` (or `committed_transcript
 
 ---
 
+## AssemblyAI Streaming (Universal)
+
+**Sources consulted (2026-06-10):**
+- <https://www.assemblyai.com/docs/guides/streaming>
+- <https://www.assemblyai.com/docs/speech-to-text/universal-streaming>
+- <https://assemblyai.com/docs/api-reference/streaming-api/streaming-api>
+- <https://www.assemblyai.com/docs/api-reference/streaming-api/generate-streaming-token>
+- <https://www.assemblyai.com/docs/streaming/prompting>
+- <https://www.assemblyai.com/docs/streaming/migration-guides/universal-to-u3-pro-streaming.md>
+- <https://www.assemblyai.com/blog/introducing-universal-streaming>
+- <https://www.assemblyai.com/blog/introducing-multilingual-universal-streaming>
+- <https://www.assemblyai.com/blog/streaming-keyterms-prompting>
+- <https://www.assemblyai.com/blog/universal-3-pro-streaming>
+- <https://www.assemblyai.com/blog/assemblyai-october-2025-releases>
+- <https://www.assemblyai.com/blog/multilingual-speech-to-text-api-universal-3-pro>
+- <https://www.assemblyai.com/blog/raw-websocket-voice-agent-with-assemblyai-universal-3-pro-streaming>
+- <https://www.assemblyai.com/docs/faq/language-support-for-real-time-transcription>
+
+### Current product naming
+
+The spec calls this "Universal-3 Pro Streaming." The current (2026-06-10) AssemblyAI product line for streaming STT is:
+
+| `speech_model` value | Product name | Notes |
+|---|---|---|
+| `universal-streaming-english` | Universal Streaming (English) | English-only; lowest cost ($0.15/hr) |
+| `universal-streaming-multilingual` | Universal Streaming (Multilingual) | 6 languages; per-turn language detection |
+| `u3-rt-pro` | Universal-3 Pro Streaming | 99+ languages; native code-switching; keyterms + prompt; $0.45/hr |
+
+**The spec's "Universal-3 Pro Streaming" maps to `speech_model=u3-rt-pro`.** This is the correct model for the bake-off adapter because it supports German, keyterm boosting, and a free-form domain `prompt`.
+
+### WebSocket endpoint & authentication
+
+**Endpoint (all models, all regions):**
+```
+wss://streaming.assemblyai.com/v3/ws
+```
+
+EU regional variant: `wss://streaming.eu.assemblyai.com/v3/ws`
+
+**Authentication — two methods:**
+
+| Method | How | Recommended for |
+|---|---|---|
+| API key in `Authorization` header | `Authorization: <ASSEMBLYAI_API_KEY>` (no `Bearer` prefix) | Server-side (this project) |
+| Temporary token in query param | `?token=<token>` | Browser / untrusted clients |
+
+**Temporary-token flow (for reference):**
+1. Server-side: `GET https://streaming.assemblyai.com/v3/token` with `Authorization: <API_KEY>` header and `?expires_in_seconds=<1–600>` (and optionally `&max_session_duration_seconds=<60–10800>`).
+2. Response JSON contains `{ "token": "...", "expires_in_seconds": ... }`.
+3. Client uses `?token=<token>` in the WebSocket URL. Token is single-use; must be redeemed within the window.
+
+**Not used by this project** (server-side only; use the `Authorization` header).
+
+### Connection query parameters
+
+All parameters are appended to the WebSocket upgrade URL. Authentication uses an extra HTTP header (see above) rather than a query param for server-side use.
+
+| Parameter | Type | Default | Notes |
+|---|---|---|---|
+| `speech_model` | string | — | **Required.** Use `"u3-rt-pro"` for this project |
+| `sample_rate` | integer | 16000 | Must match audio source |
+| `encoding` | string | `pcm_s16le` | `"pcm_s16le"` (raw signed 16-bit LE PCM) or `"pcm_mulaw"` |
+| `keyterms_prompt` | string (repeated) | — | Repeated query param, one entry per term. Max **100 terms × 50 characters** each. On U3 Pro, can be used together with `prompt`. |
+| `prompt` | string | — | Free-form transcription instruction string. U3 Pro only. Max length not explicitly documented. See §prompt section. |
+| `inactivity_timeout` | integer | — | Seconds (5–3600). Server closes connection after this many seconds of silence. Not set = no idle timeout (session held open until 3-hour hard limit or client close). |
+| `min_turn_silence` | integer | 100 | Milliseconds. Minimum silence for end-of-turn (U3 Pro default: 100 ms; Universal default: 400 ms) |
+| `max_turn_silence` | integer | 1000 | Milliseconds (U3 Pro default: 1000 ms; Universal default: 1280 ms) |
+| `vad_threshold` | float | 0.3 | Voice activity detection threshold (U3 Pro default: 0.3; Universal: 0.4) |
+| `language_detection` | boolean | false | Multilingual models only. Adds detected `language_code` to Turn messages |
+| `speaker_labels` | boolean | false | Enable diarization |
+| `max_speakers` | integer | — | 1–10; requires `speaker_labels=true` |
+| `domain` | enum | — | Domain-specific vocabulary LM. Currently `"medical-v1"` (supports EN, ES, DE, FR). |
+| `format_turns` | boolean | — | **Removed in U3 Pro** (always on). Present in Universal Streaming only. |
+| `language` | string | — | **Deprecated.** Replaced by `speech_model` selection. |
+
+### Audio framing — client → server
+
+Audio is sent as **raw binary WebSocket frames** (not base64 JSON). There is no JSON envelope.
+
+| Property | Value |
+|---|---|
+| Encoding | `pcm_s16le` (mono signed 16-bit little-endian PCM) |
+| Sample rate | 16000 Hz (must match `sample_rate` query param) |
+| Channels | Mono |
+| Recommended frame size | ~50 ms of audio per frame (800 samples at 16 kHz = 1 600 bytes) |
+| Frame type | WebSocket binary opcode (`OPCODE_BINARY`) |
+
+**PCM16 @ 16 kHz mono is confirmed supported** and matches `sounddevice` output at `dtype='int16'` / `samplerate=16000`. This is the format used by this project.
+
+### Message schemas
+
+#### (a) Session begin — server → client (control/ack)
+
+First message after successful connection. The adapter must classify this as NOT a transcript (return `None`).
+
+```json
+{
+  "type": "Begin",
+  "id": "3e4f2a1b-8c7d-4e9f-a0b1-2c3d4e5f6a7b",
+  "expires_at": 1749600000
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `type` | string | Always `"Begin"` |
+| `id` | string | UUID for this session |
+| `expires_at` | integer | Unix timestamp when the session will be force-closed (≤ start + 3 h) |
+
+#### (b) Partial/interim transcript — server → client
+
+Emitted continuously while the user is speaking. `end_of_turn` is `false`.
+
+```json
+{
+  "type": "Turn",
+  "turn_order": 0,
+  "turn_is_formatted": true,
+  "end_of_turn": false,
+  "transcript": "The first move is what sets everything in",
+  "end_of_turn_confidence": 0.12,
+  "words": [
+    {"text": "The",  "start": 1240, "end": 1380, "confidence": 0.99, "word_is_final": true},
+    {"text": "in",   "start": 2980, "end": 3100, "confidence": 0.99, "word_is_final": false}
+  ]
+}
+```
+
+#### (c) Final/end-of-turn transcript — server → client
+
+Emitted when U3 Pro's punctuation-based endpointing decides the speaker has finished. `end_of_turn` is `true`. Text will not change after this.
+
+```json
+{
+  "type": "Turn",
+  "turn_order": 0,
+  "turn_is_formatted": true,
+  "end_of_turn": true,
+  "transcript": "The first move is what sets everything in motion.",
+  "end_of_turn_confidence": 0.94,
+  "words": [
+    {"text": "The",     "start": 1240, "end": 1380, "confidence": 0.99, "word_is_final": true},
+    {"text": "motion.", "start": 3100, "end": 3550, "confidence": 0.97, "word_is_final": true}
+  ]
+}
+```
+
+#### Full Turn message field reference
+
+| Field | Type | Notes |
+|---|---|---|
+| `type` | string | Always `"Turn"` for transcript messages |
+| `turn_order` | integer | Monotonically increasing turn counter (resets to 0 per session) |
+| `turn_is_formatted` | boolean | `true` when punctuation/casing is applied (always `true` for U3 Pro) |
+| `end_of_turn` | boolean | **`false` = partial; `true` = final/committed.** This is the primary discriminator. |
+| `transcript` | string | The full accumulated text of this turn so far |
+| `utterance` | string | Optional: raw unformatted text of the utterance |
+| `language_code` | string | ISO 639-1 code; present when `language_detection=true` |
+| `language_confidence` | float | Confidence for `language_code`; present with `language_detection=true` |
+| `speaker_label` | string | Speaker label; present when `speaker_labels=true` |
+| `end_of_turn_confidence` | float | Model's confidence that the turn is complete (0.0–1.0) |
+| `words[]` | array | Per-word timing array |
+| `words[].text` | string | The word text |
+| `words[].start` | integer | Word start time in **milliseconds** from stream start |
+| `words[].end` | integer | Word end time in **milliseconds** from stream start |
+| `words[].confidence` | float | Per-word ASR confidence |
+| `words[].word_is_final` | boolean | `true` = this word will not change in subsequent Turn messages |
+| `words[].speaker` | string | Per-word speaker label; present when `speaker_labels=true` |
+
+#### (d) Session termination — server → client
+
+```json
+{
+  "type": "Termination",
+  "audio_duration_seconds": 65.4,
+  "session_duration_seconds": 68.1
+}
+```
+
+The adapter should treat this as a disconnect signal; it is not a transcript.
+
+#### (e) Force end-of-turn — client → server
+
+To programmatically trigger end-of-turn detection (e.g. at session teardown), send a JSON text frame:
+
+```json
+{"type": "ForceEndpoint"}
+```
+
+### Partial vs. final discrimination
+
+**The sole discriminator is `end_of_turn` (boolean) in the Turn message.**
+
+- `"type": "Begin"` → control / session-ack → adapter returns `None`
+- `"type": "Turn"` + `end_of_turn: false` → partial → adapter emits `TranscriptEvent(kind="partial", ...)`
+- `"type": "Turn"` + `end_of_turn: true` → final → adapter emits `TranscriptEvent(kind="final", ...)`
+- `"type": "Termination"` → teardown signal → adapter returns `None`
+
+Unlike ElevenLabs' `message_type` string, AssemblyAI uses a **single message type (`"Turn"`) for both partials and finals**, with `end_of_turn` as the boolean flag.
+
+### Timestamp units
+
+**Milliseconds (integer).** All `start` and `end` values in the `words[]` array are integer milliseconds from stream start (e.g. `1240`, `3550`). No conversion needed to produce `t_audio_start_ms` / `t_audio_end_ms` for `TranscriptEvent`.
+
+**Contrast with ElevenLabs:** ElevenLabs uses float seconds (e.g. `1.24`), requiring `× 1000`. AssemblyAI uses integer milliseconds — pass through directly.
+
+The segment timestamps are derived as:
+- `t_audio_start_ms` = `words[0].start` (first word in the Turn)
+- `t_audio_end_ms` = `words[-1].end` (last word in the Turn)
+
+If `words` is empty, fall back to `0` / `0` and log a warning.
+
+### Keyterm prompting
+
+| Item | Value |
+|---|---|
+| Parameter name | `keyterms_prompt` (query param, **repeated** one entry per term: `&keyterms_prompt=Profitrate&keyterms_prompt=Tübingen`) |
+| Max count | **100 terms** per session (requests > 100 terms → server error) |
+| Max length per term | **50 characters** each (terms > 50 chars are silently ignored) |
+| Pricing | +$0.04/hr on top of base rate (Universal Streaming base: $0.15/hr → $0.19/hr with keyterms) |
+| Model support | `universal-streaming-english`, `universal-streaming-multilingual`, `u3-rt-pro` all support `keyterms_prompt` |
+| Mid-stream updates | On U3 Pro, `keyterms_prompt` can be updated mid-stream (send a JSON text frame) |
+| Multi-word phrases | Supported (e.g. `"rate of profit"`); each counts as one keyterm toward the 100-term cap |
+
+**For this project:** Pass glossary `term_src` values sorted by `priority` then length, truncated at 100 terms (warn if truncated). Multi-word terms within the 50-char limit are fully supported.
+
+### Free-form domain prompt
+
+The `prompt` query parameter is supported on `u3-rt-pro` **only**.
+
+| Item | Value |
+|---|---|
+| Parameter name | `prompt` (query param, URL-encoded string) |
+| Character limit | ⚠️ Not explicitly stated in docs — estimated up to several hundred characters based on examples |
+| Content | Free-form transcription instructions (e.g. "Transcribe academic lecture. Maintain formal register. Use Oxford English.") |
+| Domain blurb | Can contain a 2–4 sentence domain description matching `domain_blurb.txt` |
+| Model support | `u3-rt-pro` **only** (not available on Universal Streaming models) |
+
+**Prompt + keyterms mutual exclusivity (spec flag):**
+
+The spec flagged this as a potential concern. **The finding is:**
+
+- **Universal Streaming** (`universal-streaming-english` / `universal-streaming-multilingual`): `prompt` **not supported** at all; `keyterms_prompt` is the only boosting mechanism.
+- **Universal-3 Pro** (`u3-rt-pro`): `prompt` **and** `keyterms_prompt` **CAN be used together** in the same session. When combined, keyterm-boosted words are automatically appended to the effective prompt. There is **no mutual exclusivity on U3 Pro**.
+
+**Conclusion for this project:** Use `speech_model=u3-rt-pro` with both `prompt=<domain_blurb>` and `keyterms_prompt=<term>` (repeated). This is the correct and supported configuration.
+
+### Language support
+
+| Language | Code | Supported in streaming? | Model |
+|---|---|---|---|
+| English | `en` | Yes | `universal-streaming-english`, `universal-streaming-multilingual`, `u3-rt-pro` |
+| German | `de` | **Yes** | `universal-streaming-multilingual`, `u3-rt-pro` |
+| Spanish | `es` | Yes | `universal-streaming-multilingual`, `u3-rt-pro` |
+| French | `fr` | Yes | `universal-streaming-multilingual`, `u3-rt-pro` |
+| Portuguese | `pt` | Yes | `universal-streaming-multilingual`, `u3-rt-pro` |
+| Italian | `it` | Yes | `universal-streaming-multilingual`, `u3-rt-pro` |
+| 99+ others | — | Yes | `u3-rt-pro` only |
+
+**German is fully supported** in both `universal-streaming-multilingual` and `u3-rt-pro`. For a session pinned to German (`source_language = "de"`), use `speech_model=u3-rt-pro`.
+
+**Language pinning:**
+
+The deprecated `language` query param (`"en"` / `"multi"`) has been removed in U3 Pro. Instead:
+
+- For English-only sessions: use `speech_model=universal-streaming-english`.
+- For German or other sessions: use `speech_model=u3-rt-pro`. There is **no explicit language pin parameter** in U3 Pro; the model relies on native code-switching and prompt-based hints.
+- To bias the model toward a specific language, include it in the `prompt` (e.g. `"Transcribe German academic lecture."`).
+- `language_detection=true` enables per-turn language code reporting but does not pin the language.
+
+⚠️ **UNCERTAIN — strict language pinning on U3 Pro:** There is no documented parameter that prevents the model from accepting audio in other languages. If the operator needs to guarantee German-only transcription (no accidental English interjection transcription), test empirically. The `prompt` language hint is the best available mechanism.
+
+### Session duration limits / keepalive
+
+| Item | Value |
+|---|---|
+| Hard session limit | **3 hours** — server auto-closes the session and sends `Termination` |
+| Billing unit | Total WebSocket connection duration (not audio duration) |
+| Idle timeout | **No default idle timeout** — connections remain open until explicit close or the 3-hour limit, unless `inactivity_timeout` is set |
+| `inactivity_timeout` param | Optional, 5–3600 seconds. Server sends `Termination` after this many seconds of silence. |
+| Keepalive / ping-pong | Not required when `inactivity_timeout` is not set. If set, send audio or a `ForceEndpoint` frame to reset the timer. |
+
+**Recommendation for this project:** Do **not** set `inactivity_timeout` (speakers pause naturally; no risk of unexpected close). Implement proactive reconnect at 80% of the 3-hour limit (~2 h 24 min) via `ResilientASR`'s rotation logic.
+
+### Faster-than-realtime audio input
+
+⚠️ **UNCERTAIN — not documented.** The API is designed for real-time input paced at RTF=1.0. The harness `FileSource` already paces at `rtf=1.0` by default; this is the safe approach. Whether the server tolerates deliberate burst input (RTF > 1.0) without quality degradation has not been confirmed in any public documentation. Keep `harness.rtf = 1.0` for the bake-off.
+
+### Pricing summary
+
+| Configuration | Rate |
+|---|---|
+| Universal Streaming (English) | $0.15/hr |
+| Universal Streaming (Multilingual) | $0.15/hr |
+| Universal-3 Pro Streaming | **$0.45/hr** |
+| + `keyterms_prompt` add-on | +$0.04/hr |
+| U3 Pro + keyterms (this project) | **~$0.49/hr** |
+
+Rough 2-hour session cost (U3 Pro + keyterms): **~$0.98** (cf. ElevenLabs Scribe: ~$0.88/hr → $0.88 + $0.10 keyterms = ~$1.96).
+
+### Fixture field mapping (AssemblyAI)
+
+This mapping is what the Task 21 implementer codes the `AssemblyAIStreamingAdapter._normalize()` method against. Every field name below matches exactly the fields in `tests/fixtures/assemblyai_messages.json`.
+
+| Purpose | Field | Notes |
+|---|---|---|
+| Transcript text | `transcript` | Present in all `Turn` messages (partials and finals) |
+| Segment start time | `words[0].start` | Integer, **milliseconds** from stream start. Use directly as `t_audio_start_ms` — NO unit conversion needed. |
+| Segment end time | `words[-1].end` | Integer, **milliseconds** from stream start. Use directly as `t_audio_end_ms`. |
+| Partial vs final vs control | `type` + `end_of_turn` | `type == "Begin"` → control/ack → return `None`; `type == "Turn"` + `end_of_turn == false` → partial; `type == "Turn"` + `end_of_turn == true` → final; `type == "Termination"` → teardown → return `None` |
+| Is final? | `end_of_turn == true` | Boolean field inside a `Turn` message |
+| Type discriminator | `type` | String: `"Begin"`, `"Turn"`, `"Termination"` |
+
+**Timestamp note:** AssemblyAI reports all `words[].start` / `words[].end` values in **integer milliseconds** (e.g. `1240`, `3550`). The adapter must pass these through as-is to `t_audio_start_ms` / `t_audio_end_ms` without multiplication. This is the opposite of ElevenLabs, which uses float seconds requiring `× 1000`.
+
+**Edge cases the adapter must handle:**
+- `words` array is empty → set both timestamps to `0`; log a warning.
+- `type == "Termination"` → close the receiver loop gracefully (do not raise).
+- `type` field is missing or unknown → log and skip.
+
+⚠️ schema-derived, not captured live — structure is consistent with official v3 docs + migration guide + blog examples, but must be validated against a live `ASSEMBLYAI_API_KEY` before Task 21 ships.
+
+---
+
 ## Translation LLM Providers
 
 **Sources consulted (2026-06-10):**

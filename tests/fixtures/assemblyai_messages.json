@@ -1,0 +1,45 @@
+{
+  "_schema_note": "schema-derived from official AssemblyAI Universal-3 Pro Streaming docs (v3 WS API, accessed 2026-06-10). Not captured from a live session — must be validated against a live ASSEMBLYAI_API_KEY before Task 21 ships.",
+  "config_ack": {
+    "type": "Begin",
+    "id": "3e4f2a1b-8c7d-4e9f-a0b1-2c3d4e5f6a7b",
+    "expires_at": 1749600000
+  },
+  "partial": {
+    "type": "Turn",
+    "turn_order": 0,
+    "turn_is_formatted": true,
+    "end_of_turn": false,
+    "transcript": "The first move is what sets everything in",
+    "end_of_turn_confidence": 0.12,
+    "words": [
+      {"text": "The",        "start": 1240, "end": 1380, "confidence": 0.99, "word_is_final": true},
+      {"text": "first",      "start": 1380, "end": 1620, "confidence": 0.98, "word_is_final": true},
+      {"text": "move",       "start": 1620, "end": 1910, "confidence": 0.97, "word_is_final": true},
+      {"text": "is",         "start": 1910, "end": 2050, "confidence": 0.99, "word_is_final": true},
+      {"text": "what",       "start": 2050, "end": 2220, "confidence": 0.98, "word_is_final": true},
+      {"text": "sets",       "start": 2220, "end": 2470, "confidence": 0.97, "word_is_final": true},
+      {"text": "everything", "start": 2470, "end": 2980, "confidence": 0.96, "word_is_final": true},
+      {"text": "in",         "start": 2980, "end": 3100, "confidence": 0.99, "word_is_final": false}
+    ]
+  },
+  "final": {
+    "type": "Turn",
+    "turn_order": 0,
+    "turn_is_formatted": true,
+    "end_of_turn": true,
+    "transcript": "The first move is what sets everything in motion.",
+    "end_of_turn_confidence": 0.94,
+    "words": [
+      {"text": "The",        "start": 1240, "end": 1380, "confidence": 0.99, "word_is_final": true},
+      {"text": "first",      "start": 1380, "end": 1620, "confidence": 0.98, "word_is_final": true},
+      {"text": "move",       "start": 1620, "end": 1910, "confidence": 0.97, "word_is_final": true},
+      {"text": "is",         "start": 1910, "end": 2050, "confidence": 0.99, "word_is_final": true},
+      {"text": "what",       "start": 2050, "end": 2220, "confidence": 0.98, "word_is_final": true},
+      {"text": "sets",       "start": 2220, "end": 2470, "confidence": 0.97, "word_is_final": true},
+      {"text": "everything", "start": 2470, "end": 2980, "confidence": 0.96, "word_is_final": true},
+      {"text": "in",         "start": 2980, "end": 3100, "confidence": 0.99, "word_is_final": true},
+      {"text": "motion.",    "start": 3100, "end": 3550, "confidence": 0.97, "word_is_final": true}
+    ]
+  }
+}
