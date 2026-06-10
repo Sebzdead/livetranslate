@@ -1,0 +1,162 @@
+{
+  "config_ack": {
+    "message_type": "session_started",
+    "session_id": "0b0a72b57fd743ebbed6555d44836cf2",
+    "config": {
+      "model_id": "scribe_v2_realtime",
+      "audio_format": "pcm_16000",
+      "sample_rate": 16000,
+      "language_code": "en",
+      "commit_strategy": "vad",
+      "include_timestamps": true,
+      "keyterms": ["ElevenLabs", "Scribe"]
+    }
+  },
+  "partial": {
+    "message_type": "partial_transcript",
+    "text": "The first move is what sets everything in"
+  },
+  "final": {
+    "message_type": "committed_transcript_with_timestamps",
+    "text": "The first move is what sets everything in motion.",
+    "language_code": "en",
+    "words": [
+      {
+        "text": "The",
+        "start": 1.24,
+        "end": 1.38,
+        "type": "word",
+        "speaker_id": "speaker_0",
+        "logprob": -0.012
+      },
+      {
+        "text": " ",
+        "start": 1.38,
+        "end": 1.38,
+        "type": "spacing",
+        "speaker_id": "speaker_0",
+        "logprob": -0.001
+      },
+      {
+        "text": "first",
+        "start": 1.38,
+        "end": 1.62,
+        "type": "word",
+        "speaker_id": "speaker_0",
+        "logprob": -0.008
+      },
+      {
+        "text": " ",
+        "start": 1.62,
+        "end": 1.62,
+        "type": "spacing",
+        "speaker_id": "speaker_0",
+        "logprob": -0.001
+      },
+      {
+        "text": "move",
+        "start": 1.62,
+        "end": 1.91,
+        "type": "word",
+        "speaker_id": "speaker_0",
+        "logprob": -0.005
+      },
+      {
+        "text": " ",
+        "start": 1.91,
+        "end": 1.91,
+        "type": "spacing",
+        "speaker_id": "speaker_0",
+        "logprob": -0.001
+      },
+      {
+        "text": "is",
+        "start": 1.91,
+        "end": 2.05,
+        "type": "word",
+        "speaker_id": "speaker_0",
+        "logprob": -0.003
+      },
+      {
+        "text": " ",
+        "start": 2.05,
+        "end": 2.05,
+        "type": "spacing",
+        "speaker_id": "speaker_0",
+        "logprob": -0.001
+      },
+      {
+        "text": "what",
+        "start": 2.05,
+        "end": 2.22,
+        "type": "word",
+        "speaker_id": "speaker_0",
+        "logprob": -0.007
+      },
+      {
+        "text": " ",
+        "start": 2.22,
+        "end": 2.22,
+        "type": "spacing",
+        "speaker_id": "speaker_0",
+        "logprob": -0.001
+      },
+      {
+        "text": "sets",
+        "start": 2.22,
+        "end": 2.47,
+        "type": "word",
+        "speaker_id": "speaker_0",
+        "logprob": -0.009
+      },
+      {
+        "text": " ",
+        "start": 2.47,
+        "end": 2.47,
+        "type": "spacing",
+        "speaker_id": "speaker_0",
+        "logprob": -0.001
+      },
+      {
+        "text": "everything",
+        "start": 2.47,
+        "end": 2.98,
+        "type": "word",
+        "speaker_id": "speaker_0",
+        "logprob": -0.011
+      },
+      {
+        "text": " ",
+        "start": 2.98,
+        "end": 2.98,
+        "type": "spacing",
+        "speaker_id": "speaker_0",
+        "logprob": -0.001
+      },
+      {
+        "text": "in",
+        "start": 2.98,
+        "end": 3.10,
+        "type": "word",
+        "speaker_id": "speaker_0",
+        "logprob": -0.004
+      },
+      {
+        "text": " ",
+        "start": 3.10,
+        "end": 3.10,
+        "type": "spacing",
+        "speaker_id": "speaker_0",
+        "logprob": -0.001
+      },
+      {
+        "text": "motion.",
+        "start": 3.10,
+        "end": 3.55,
+        "type": "word",
+        "speaker_id": "speaker_0",
+        "logprob": -0.006
+      }
+    ]
+  }
+}
