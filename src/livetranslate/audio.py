@@ -32,6 +32,11 @@ class RingBuffer:
                 del self._buf[:trim]
                 self._start_ms += trim // BYTES_PER_MS
 
+    def oldest_ms(self) -> int:
+        """Return the stream-time ms of the oldest byte in the ring."""
+        with self._lock:
+            return self._start_ms
+
     def replay_from(self, ms: int, chunk_ms: int = 100) -> Iterator[AudioChunk]:
         with self._lock:
             if ms < self._start_ms:
