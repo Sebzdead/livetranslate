@@ -1,0 +1,51 @@
+[session]
+source_language = "en"          # pinned per session; "de" supported
+output_dir = "sessions"
+
+[audio]
+device_substring = "Scarlett"   # refuse to start if not found
+chunk_ms = 100
+ring_seconds = 120
+
+[asr]
+adapter = "elevenlabs"          # "elevenlabs" | "assemblyai"
+failover = ""                   # optional: "assemblyai"
+give_up_after_s = 0             # 0 = never
+overlap_ms = 2000
+
+[asr.elevenlabs]
+# endpoint/model fields filled in after doc verification (§13)
+keyterms_max = 100
+
+[asr.assemblyai]
+use_domain_prompt = true
+
+[segmenter]
+max_words = 45
+max_pending_s = 12
+
+[translate]
+targets = ["es", "fr", "de", "pt"]   # add "ar", "zh" to enable
+provider = ""                         # request/response mapping key; set at deploy time
+base_url = ""
+model = ""                            # fast tier; set at deploy time
+api_key_env = "TRANSLATE_API_KEY"
+timeout_s = 10
+batch_threshold = 3
+batch_max = 6
+# [translate.fallback] optional second provider block
+
+[glossary]
+path = "glossary.tsv"
+domain_blurb = "domain_blurb.txt"
+
+[display]
+host = "0.0.0.0"
+port = 8080
+font_scale = 1.6
+
+[health]
+stall_s = 10
+
+[harness]
+rtf = 1.0
