@@ -43,3 +43,19 @@ def test_mask_shows_only_last_four():
     assert files.mask("sk-1234567890abcd") == "…abcd"
     assert files.mask("abc") == "…"
     assert files.mask("") == ""
+
+
+def test_read_env_handles_export_prefix_and_inline_comments(tmp_path):
+    p = tmp_path / ".env"
+    p.write_text('export ELEVENLABS_API_KEY="abc123"\nTRANSLATE_API_KEY=xyz789  # prod key\n')
+    env = files.read_env(p)
+    assert env == {"ELEVENLABS_API_KEY": "abc123", "TRANSLATE_API_KEY": "xyz789"}
+
+
+def test_write_env_keys_updates_export_line_without_duplicating(tmp_path):
+    p = tmp_path / ".env"
+    p.write_text("export ELEVENLABS_API_KEY=old\n")
+    files.write_env_keys(p, {"ELEVENLABS_API_KEY": "new"})
+    text = p.read_text()
+    assert text.count("ELEVENLABS_API_KEY") == 1
+    assert files.read_env(p) == {"ELEVENLABS_API_KEY": "new"}

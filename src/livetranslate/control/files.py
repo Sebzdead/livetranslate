@@ -26,7 +26,10 @@ def atomic_write(path, text: str) -> None:
 
 
 def read_env(path) -> dict:
-    """Parse KEY=VALUE lines; skip comments/blanks; strip optional quotes."""
+    """Parse KEY=VALUE lines; skip comments/blanks; strip optional quotes.
+
+    Handles optional 'export ' prefix and inline comments (space-hash).
+    """
     p = Path(path)
     if not p.exists():
         return {}
@@ -35,8 +38,19 @@ def read_env(path) -> dict:
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
+        # Remove optional 'export ' prefix
+        if line.startswith("export "):
+            line = line[7:].lstrip()
         key, _, value = line.partition("=")
-        out[key.strip()] = value.strip().strip('"').strip("'")
+        key = key.strip()
+        value = value.strip()
+        # If value is not quoted, strip inline comments
+        if value and not (value.startswith('"') or value.startswith("'")):
+            if " #" in value:
+                value = value.split(" #")[0].strip()
+        # Strip quotes
+        value = value.strip('"').strip("'")
+        out[key] = value
     return out
 
 
@@ -44,6 +58,7 @@ def write_env_keys(path, updates: dict) -> None:
     """Update KEY=VALUE lines in place, preserving unrelated lines and comments.
 
     Empty values are skipped so a blank form field never wipes a stored key.
+    Handles optional 'export ' prefix in existing lines.
     """
     p = Path(path)
     lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else []
@@ -53,6 +68,9 @@ def write_env_keys(path, updates: dict) -> None:
         stripped = line.strip()
         key = None
         if stripped and not stripped.startswith("#") and "=" in stripped:
+            # Remove optional 'export ' prefix when extracting key
+            if stripped.startswith("export "):
+                stripped = stripped[7:].lstrip()
             key = stripped.partition("=")[0].strip()
         if key in remaining:
             out.append(f"{key}={remaining.pop(key)}")
