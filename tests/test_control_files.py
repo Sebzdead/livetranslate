@@ -181,3 +181,9 @@ def test_write_glossary_text_accepts_valid(tmp_path):
     p = tmp_path / "glossary.tsv"
     files.write_glossary_text(p, GOOD_TSV)
     assert p.read_text() == GOOD_TSV
+
+
+def test_validate_glossary_tolerates_bom(tmp_path):
+    result = files.validate_glossary_text("﻿" + GOOD_TSV)
+    assert result["problems"] == []
+    assert result["terms"] == 2

@@ -167,6 +167,7 @@ def validate_glossary_text(text: str) -> dict:
     """
     from ..glossary import Glossary
 
+    text = text.lstrip("﻿")
     first = text.splitlines()[0] if text.strip() else ""
     if "term_src" not in first.split("\t"):
         return {"terms": 0, "keyterms": 0,
@@ -182,7 +183,10 @@ def validate_glossary_text(text: str) -> dict:
     except Exception as exc:
         return {"terms": 0, "keyterms": 0, "problems": [f"glossary parse error: {exc}"]}
     finally:
-        os.unlink(tmp)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def write_glossary_text(path, text: str) -> None:
