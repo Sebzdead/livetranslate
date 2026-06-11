@@ -157,3 +157,36 @@ def update_config_fields(path, updates: dict) -> None:
                     f"config.toml has no section [{'.'.join(parents)}] — cannot set {dotted!r}")
         node[leaf] = value
     write_config_text(path, tomlkit.dumps(doc))
+
+
+def validate_glossary_text(text: str) -> dict:
+    """Validate TSV with the real Glossary loader (single source of truth).
+
+    Returns {"terms": n, "keyterms": m, "problems": [...]}, where keyterms is
+    the count that would be sent to ElevenLabs under the cap of 50.
+    """
+    from ..glossary import Glossary
+
+    first = text.splitlines()[0] if text.strip() else ""
+    if "term_src" not in first.split("\t"):
+        return {"terms": 0, "keyterms": 0,
+                "problems": ["first line must be a tab-separated header containing 'term_src'"]}
+    fd, tmp = tempfile.mkstemp(suffix=".tsv")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        glossary = Glossary.load(tmp)
+        return {"terms": len(glossary.terms),
+                "keyterms": len(glossary.keyterms(cap=50)),
+                "problems": []}
+    except Exception as exc:
+        return {"terms": 0, "keyterms": 0, "problems": [f"glossary parse error: {exc}"]}
+    finally:
+        os.unlink(tmp)
+
+
+def write_glossary_text(path, text: str) -> None:
+    result = validate_glossary_text(text)
+    if result["problems"]:
+        raise ValueError("; ".join(result["problems"]))
+    atomic_write(path, text)

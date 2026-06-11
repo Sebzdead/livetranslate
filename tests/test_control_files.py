@@ -141,3 +141,43 @@ def test_update_config_fields_raises_on_missing_section(tmp_path):
     p.write_text(GOOD_TOML)
     with pytest.raises(KeyError, match="no section"):
         files.update_config_fields(p, {"nonexistent.key": "x"})
+
+
+GOOD_TSV = (
+    "term_src\tes\tfr\tde\tpt\tar\tzh\tpriority\tnotes\n"
+    "rate of profit\ttasa de ganancia\ttaux de profit\tProfitrate\t\t\t\t1\t\n"
+    "Comintern\tComintern\tComintern\tKomintern\t\t\t\t1\tname\n"
+)
+
+
+def test_validate_glossary_counts_terms():
+    result = files.validate_glossary_text(GOOD_TSV)
+    assert result["problems"] == []
+    assert result["terms"] == 2
+    assert result["keyterms"] == 2
+
+
+def test_validate_glossary_rejects_missing_header():
+    result = files.validate_glossary_text("no header here\n")
+    assert result["terms"] == 0
+    assert result["problems"]
+
+
+def test_validate_glossary_rejects_bad_priority():
+    bad = GOOD_TSV.replace("\t1\t\n", "\tone\t\n", 1)
+    result = files.validate_glossary_text(bad)
+    assert result["problems"]
+
+
+def test_write_glossary_text_rejects_invalid(tmp_path):
+    p = tmp_path / "glossary.tsv"
+    p.write_text(GOOD_TSV)
+    with pytest.raises(ValueError):
+        files.write_glossary_text(p, "garbage")
+    assert p.read_text() == GOOD_TSV
+
+
+def test_write_glossary_text_accepts_valid(tmp_path):
+    p = tmp_path / "glossary.tsv"
+    files.write_glossary_text(p, GOOD_TSV)
+    assert p.read_text() == GOOD_TSV
