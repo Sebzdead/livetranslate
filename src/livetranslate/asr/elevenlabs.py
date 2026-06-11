@@ -16,9 +16,14 @@ log = logging.getLogger(__name__)
 # message_type -> normalized kind (verified in docs/vendor-notes.md, Task 8)
 _TRANSCRIPT_KINDS = {
     "partial_transcript": "partial",
-    "committed_transcript": "final",
     "committed_transcript_with_timestamps": "final",
 }
+# Verified live 2026-06-10: every commit is sent BOTH as a bare
+# committed_transcript (no words/timestamps) and as
+# committed_transcript_with_timestamps. We request timestamps, so the bare
+# variant is ignored — mapping both to "final" would emit the first one with
+# zero timestamps and corrupt the segmenter timeline.
+_IGNORED_MESSAGE_TYPES = ("session_started", "committed_transcript")
 KEYTERMS_CAP = 50    # ElevenLabs realtime cap (docs); surcharged
 KEYTERM_MAX_LEN = 20  # ElevenLabs realtime per-term character limit
 
@@ -91,16 +96,25 @@ class ElevenLabsScribeAdapter:
                 self._send_commit()
                 return
             try:
-                frame = {"audio_base_64": base64.b64encode(chunk.pcm16).decode("ascii"),
-                         "sample_rate": self.sample_rate}
-                self._ws.send(json.dumps(frame))
+                self._ws.send(json.dumps(self._audio_frame(chunk.pcm16)))
             except Exception as e:                   # noqa: BLE001 — surfaced as status
                 self.on_status(status("error", "asr", f"send failed: {e}"))
                 return
 
+    def _audio_frame(self, pcm16: bytes, commit: bool = False) -> dict:
+        """Verified live 2026-06-10: audio messages MUST be tagged
+        message_type=input_audio_chunk; commit is a flag on the chunk itself
+        (there is no separate commit message)."""
+        return {"message_type": "input_audio_chunk",
+                "audio_base_64": base64.b64encode(pcm16).decode("ascii"),
+                "commit": commit,
+                "sample_rate": self.sample_rate}
+
     def _send_commit(self) -> None:
+        # 100 ms of silence carrying the commit flag flushes the last segment.
         try:
-            self._ws.send(json.dumps({"commit": True}))
+            self._ws.send(json.dumps(self._audio_frame(b"\x00" * (self.sample_rate // 10 * 2),
+                                                       commit=True)))
         except Exception:                            # noqa: BLE001 — already closing
             pass
 
@@ -122,6 +136,12 @@ class ElevenLabsScribeAdapter:
             ev = self._normalize(msg)
             if ev is not None:
                 self.on_event(ev)
+            elif msg.get("message_type") not in _IGNORED_MESSAGE_TYPES:
+                # Never swallow protocol/server errors silently (an input_error
+                # storm is how a wrong audio-frame schema manifests). Warn, not
+                # error: per-message rejections must not trigger reconnect loops.
+                self.on_status(status("warn", "asr",
+                                      f"vendor message: {json.dumps(msg)[:200]}"))
 
     # -- normalization (unit-tested against fixtures) -------------------
     def _normalize(self, msg: dict) -> TranscriptEvent | None:

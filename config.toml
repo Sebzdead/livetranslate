@@ -31,7 +31,7 @@ max_pending_s = 12
 targets = ["es", "fr", "de", "pt"]   # add "ar", "zh" to enable
 provider = "openai_chat"              # DeepSeek is OpenAI-compatible
 base_url = "https://api.deepseek.com"
-model = "deepseek-chat"
+model = "deepseek-v4-flash"
 api_key_env = "TRANSLATE_API_KEY"
 timeout_s = 10
 batch_threshold = 3
@@ -44,7 +44,7 @@ domain_blurb = "domain_blurb.txt"
 
 [display]
 host = "0.0.0.0"
-port = 8080
+port = 8765                     # 8080 is occupied by another app on this machine
 font_scale = 1.6
 
 [health]
