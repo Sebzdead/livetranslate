@@ -66,7 +66,8 @@ def run_live(cfg, resume_dir=None) -> int:
                     glossary_hash=glossary.sha256, stall_detector=stall)
     resilient.ring = pipe.ring
 
-    watchdog = Watchdog(pipe, resilient, stall, on_status=pipe._on_status)
+    watchdog = Watchdog(pipe, resilient, stall, on_status=pipe._on_status,
+                        max_session_s=cfg["asr"]["max_session_s"])
 
     stop = threading.Event()
 

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from harness import run_file
 from harness.metrics import check_invariants
+from livetranslate.config import load_config
 
 
 class ChaosWrapper:
@@ -49,12 +50,18 @@ def main(argv=None) -> int:
         run_file.main(["--config", args.config, "--audio", args.audio, "--no-display"])
     finally:
         run_file.build_adapter = orig
+    cfg = load_config(args.config)
+    langs = cfg["translate"]["targets"]
     sdir = sorted(Path("sessions").iterdir())[-1]
     sentences = [json.loads(l) for l in (sdir / "sentences.jsonl").read_text().splitlines()]
     events = [json.loads(l) for l in (sdir / "events.jsonl").read_text().splitlines()]
     reconnects = sum(1 for e in events
                      if e.get("type") == "status" and "reconnecting" in e.get("message", ""))
-    errs = check_invariants(sentences, [], [])
+    translations_raw = []
+    tpath = sdir / "translations.jsonl"
+    if tpath.exists():
+        translations_raw = [json.loads(l) for l in tpath.read_text().splitlines() if l.strip()]
+    errs = check_invariants(sentences, translations_raw, langs)
     assert reconnects >= len(all_cuts), f"expected >= {len(all_cuts)} reconnects, saw {reconnects}"
     dupes = [e for e in errs if "duplicate" in e]
     assert not dupes, dupes

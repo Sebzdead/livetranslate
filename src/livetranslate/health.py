@@ -30,13 +30,16 @@ class StallDetector:
 
 class Watchdog:
     """Samples gauges every 5 s, logs every 60 s, forces reconnect on stall,
-    restarts dead translation workers once (second death in 10 min -> error banner)."""
+    restarts dead translation workers once (second death in 10 min -> error banner),
+    and rotates the ASR session proactively when max_session_s > 0 (spec §5.2)."""
 
-    def __init__(self, pipeline, resilient_asr, stall: StallDetector, on_status):
+    def __init__(self, pipeline, resilient_asr, stall: StallDetector, on_status,
+                 max_session_s: float = 0):
         self.p = pipeline
         self.asr = resilient_asr
         self.stall = stall
         self.on_status = on_status
+        self.max_session_s = max_session_s
         self._stop = threading.Event()
         self._deaths: dict[str, list[float]] = {}
         self._thread = threading.Thread(target=self._run, name="watchdog", daemon=False)
@@ -56,28 +59,43 @@ class Watchdog:
         else:
             return raw / 1024
 
-    def _run(self) -> None:
+    def _tick(self) -> None:
+        """Execute one watchdog check cycle (factored out for testability)."""
         from .asr.base import status
+        if self.stall.stalled():
+            self.on_status(status("warn", "watchdog", "ASR stall -> forcing reconnect"))
+            self.stall.event_received()
+            self.asr.force_reconnect()
+
+        # Proactive session rotation (spec §5.2).
+        if self.max_session_s > 0:
+            age = self.asr.session_age_s()
+            if age > 0.8 * self.max_session_s:
+                # Rotate at a natural pause (no tentative tail), or force at 95%.
+                tail = getattr(self.p.state, "tentative_tail", "")
+                if not tail or age > 0.95 * self.max_session_s:
+                    self.on_status(status("info", "watchdog",
+                                          f"proactive session rotation (age {age:.0f}s)"))
+                    self.asr.force_reconnect()
+
+        for lang, w in list(self.p.workers.items()):
+            if not w.alive() and not self._stop.is_set():
+                now = time.monotonic()
+                deaths = [t for t in self._deaths.get(lang, []) if now - t < 600]
+                deaths.append(now)
+                self._deaths[lang] = deaths
+                if len(deaths) >= 2:
+                    self.on_status(status("error", "watchdog",
+                                          f"worker {lang} died twice in 10 min"))
+                else:
+                    self.on_status(status("error", "watchdog",
+                                          f"worker {lang} died; restarting"))
+                    self.p.restart_worker(lang)
+
+    def _run(self) -> None:
         last_log = 0.0
         while not self._stop.wait(5.0):
-            if self.stall.stalled():
-                self.on_status(status("warn", "watchdog", "ASR stall -> forcing reconnect"))
-                self.stall.event_received()
-                self.asr.force_reconnect()
-
-            for lang, w in list(self.p.workers.items()):
-                if not w.alive() and not self._stop.is_set():
-                    now = time.monotonic()
-                    deaths = [t for t in self._deaths.get(lang, []) if now - t < 600]
-                    deaths.append(now)
-                    self._deaths[lang] = deaths
-                    if len(deaths) >= 2:
-                        self.on_status(status("error", "watchdog",
-                                              f"worker {lang} died twice in 10 min"))
-                    else:
-                        self.on_status(status("error", "watchdog",
-                                              f"worker {lang} died; restarting"))
-                        self.p.restart_worker(lang)
+            self._tick()
 
             if time.monotonic() - last_log > 60:
                 lag = self.p.state.lag_by_lang()

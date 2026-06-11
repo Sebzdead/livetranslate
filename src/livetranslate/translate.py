@@ -190,6 +190,22 @@ class TranslationWorker:
     def submit(self, sentence) -> None:
         self.q.put(sentence)           # blocking: per-language backpressure only
 
+    def submit_nowait(self, sentence):
+        """Non-blocking submit (segmenter path). On a full queue, shed the
+        oldest pending sentence to bound segmenter latency (spec §3). Returns
+        the shed sentence (caller must synthesize a failed Translation for it)
+        or None if the queue had room."""
+        try:
+            self.q.put_nowait(sentence)
+            return None
+        except _queue.Full:
+            try:
+                shed = self.q.get_nowait()
+            except _queue.Empty:
+                shed = None
+            self.q.put_nowait(sentence)
+            return shed
+
     def _run(self) -> None:
         while not (self._stop.is_set() and self.q.empty()):
             try:

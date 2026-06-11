@@ -107,6 +107,63 @@ def test_flush_and_stop_terminates_endless_reconnect_loop():
     assert [t for t in threading.enumerate() if t.name == "asr-reconnect"] == []
 
 
+def test_eviction_fallback_updates_stream_offset():
+    # A1: when replay_from is evicted, the adapter's stream offset must be
+    # updated to ring.oldest_ms() so post-reconnect event timestamps are not
+    # skewed backward, which would cause the segmenter dedupe to drop finals.
+    #
+    # Strategy: fill a tiny ring (1 s) with >1 s of audio so early ms are
+    # evicted.  Use an OffsetFakeAdapter that records set_stream_offset calls.
+    # Force reconnect with last_final_end_ms=0, overlap_ms=0 → replay_from=0,
+    # which will be evicted.  Assert that the last recorded offset equals the
+    # first replayed chunk's t_start_ms (i.e. ring.oldest_ms() at replay time).
+    ring = RingBuffer(seconds=1)
+    # Fill ring with 1.5 s of audio (> 1 s capacity) so t=0 is evicted.
+    for i in range(15):
+        ring.append(chunk(i))           # each chunk is 100 ms, 15 × 100 = 1500 ms total
+
+    class EvictionOffsetAdapter(OffsetFakeAdapter):
+        """Captures chunks sent during replay."""
+        def __init__(self):
+            super().__init__(scripted=[], die_on_send=999)   # never dies naturally
+            self.replayed: list[AudioChunk] = []
+
+        def send_audio(self, c):
+            if c.seq == -1:                 # replay chunks have seq=-1
+                self.replayed.append(c)
+            super().send_audio(c)
+
+    adapters: list[EvictionOffsetAdapter] = []
+
+    def factory():
+        a = EvictionOffsetAdapter()
+        adapters.append(a)
+        return a
+
+    r = ResilientASR(factory, ring=ring, overlap_ms=0,
+                     backoff_base_s=0.01, backoff_max_s=0.02)
+    r.last_final_end_ms = 0             # replay_from = max(0, 0-0) = 0, which is evicted
+    r.start(on_event=lambda e: None, on_status=lambda e: None)
+
+    # First adapter is the normal start; force a reconnect to trigger eviction path.
+    r.force_reconnect()
+    deadline = time.monotonic() + 3.0
+    while (len(adapters) < 2 or not adapters[-1].offsets) and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    assert len(adapters) >= 2, "reconnect did not spawn a second adapter"
+    second = adapters[-1]
+    assert second.offsets, "set_stream_offset never called on the fallback path"
+    assert second.replayed, "no replay chunks sent after eviction fallback"
+    # The key invariant: offset == first replayed chunk's t_start_ms
+    assert second.offsets[-1] == second.replayed[0].t_start_ms, (
+        f"offset {second.offsets[-1]} != first replayed chunk t_start_ms "
+        f"{second.replayed[0].t_start_ms}")
+    assert second.offsets[-1] > 0, "evicted replay must start after t=0"
+
+    r.flush_and_stop(timeout_s=1)
+
+
 def test_force_reconnect_is_idempotent_while_reconnecting():
     ring = RingBuffer(seconds=10)
     a = FakeAdapter(scripted=[])

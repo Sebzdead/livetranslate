@@ -46,6 +46,25 @@ def test_worker_batches_when_queue_deep():
     assert [t.sid for t in out] == list(range(6))
     assert len(calls) < 6              # batching collapsed calls
 
+def test_submit_nowait_sheds_oldest_when_full():
+    # A4: submit_nowait must shed the OLDEST queued sentence (not the new one)
+    # when the queue is full, and return the shed sentence so the caller can
+    # synthesize a terminal failed Translation (spec §3 — segmenter never blocks).
+    w = TranslationWorker(lang="es",
+                          translator=LLMTranslator(CFG, post=lambda *a: {"ok": True, "text": "T"}),
+                          glossary_block="", domain_blurb="", on_translation=lambda t: None,
+                          maxsize=2)
+    # never started — queue is a plain Queue(maxsize=2)
+    s0, s1, s2 = sent(0), sent(1), sent(2)
+    assert w.submit_nowait(s0) is None   # fits
+    assert w.submit_nowait(s1) is None   # fits (queue now full)
+    shed = w.submit_nowait(s2)           # must shed s0 (oldest)
+    assert shed is s0, f"expected s0 to be shed, got {shed}"
+    # queue now holds [s1, s2] in FIFO order
+    assert w.q.get_nowait() is s1
+    assert w.q.get_nowait() is s2
+
+
 def test_stop_returns_promptly_on_dead_worker_with_full_queue():
     # I3: a dead worker (watchdog gave up) with a full queue must not make
     # stop(drain=True) block forever on the sentinel put.

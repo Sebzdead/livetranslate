@@ -230,7 +230,7 @@ Run through this the day before the event and again in the room before doors ope
 **Vendor items that must be validated against live keys before each event** (see `docs/vendor-notes.md` for full detail):
 
 - ElevenLabs timestamp units: docs are marked ⚠️ UNCERTAIN — the adapter converts float seconds × 1000; confirm against a live response that word `.start`/`.end` values are indeed seconds (not ms).
-- ElevenLabs max session duration: no official figure documented; proactive rotation at 90-min intervals is implemented but the actual idle timeout must be tested empirically.
+- ElevenLabs max session duration: no official figure documented; proactive rotation is implemented via `asr.max_session_s` (0 = off by default; set to 5400 for 90-min rotation); the actual idle timeout must be tested empirically. AssemblyAI sessions hard-cap at 3 h — the reactive reconnect covers that, and `max_session_s = 10800` (or lower) can be set for a proactive guard.
 - AssemblyAI schema: marked schema-derived; validate `Turn` message fields against a live `ASSEMBLYAI_API_KEY` before using in production.
 
 ---

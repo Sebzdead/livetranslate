@@ -39,6 +39,7 @@ class ResilientASR:
         self.give_up_after_s = give_up_after_s
         self.last_final_end_ms = 0
         self.reconnect_count = 0
+        self.session_started_at: float = 0.0   # monotonic; set on every (re)connect
         self._lock = threading.RLock()
         self._adapter = None
         # _reconnecting is a plain Event used for the "is reconnect in progress" check;
@@ -64,6 +65,12 @@ class ResilientASR:
         with self._lock:
             self._adapter = self._factory()
             self._adapter.start(self.on_event, self._on_adapter_status)
+            self.session_started_at = time.monotonic()
+
+    def session_age_s(self) -> float:
+        """Return seconds since the current vendor session was established."""
+        t = self.session_started_at
+        return time.monotonic() - t if t > 0.0 else 0.0
 
     def _on_adapter_status(self, ev: StatusEvent) -> None:
         self.on_status(ev)
@@ -137,8 +144,15 @@ class ResilientASR:
                         self.on_status(status("warn", "asr",
                                               f"replay start {replay_from}ms evicted; "
                                               f"replaying from oldest {oldest}ms"))
+                        # Fix: update adapter stream offset to the actual replay
+                        # start so post-reconnect event timestamps are not skewed
+                        # backward by (oldest − replay_from) ms, which would cause
+                        # the segmenter dedupe to silently drop every new final.
+                        if hasattr(self._adapter, "set_stream_offset"):
+                            self._adapter.set_stream_offset(oldest)
                         for c in self.ring.replay_from(oldest):
                             self._adapter.send_audio(c)
+                self.session_started_at = time.monotonic()
                 self.reconnect_count += 1
                 self.on_status(status("info", "asr", "connected"))
                 self._reconnecting.clear()

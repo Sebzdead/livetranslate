@@ -12,6 +12,8 @@ adapter = "elevenlabs"          # "elevenlabs" | "assemblyai"
 failover = ""                   # optional: "assemblyai"
 give_up_after_s = 0             # 0 = never
 overlap_ms = 2000
+# 0 = off; set 5400 (90 min) for ElevenLabs per docs/vendor-notes.md; AssemblyAI hard limit is 3 h
+max_session_s = 0
 
 [asr.elevenlabs]
 # endpoint/model fields filled in after doc verification (§13)

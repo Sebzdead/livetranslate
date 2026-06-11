@@ -10,6 +10,7 @@ DEFAULTS: dict = {
     "asr": {
         "adapter": "elevenlabs", "failover": "", "give_up_after_s": 0,
         "overlap_ms": 2000,
+        "max_session_s": 0,  # 0 = off; set 5400 (90 min) for ElevenLabs; AAI hard limit 3 h
         "elevenlabs": {"keyterms_max": 50},  # realtime cap per docs/vendor-notes.md
         "assemblyai": {"use_domain_prompt": True},
     },

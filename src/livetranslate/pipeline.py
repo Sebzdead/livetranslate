@@ -8,7 +8,7 @@ from .display.server import DisplayServer, DisplayState
 from .segmenter import Segmenter
 from .store import Store
 from .translate import LLMTranslator, TranslationWorker
-from .types import AudioChunk, Sentence, StatusEvent, TranscriptEvent
+from .types import AudioChunk, Sentence, StatusEvent, TranscriptEvent, Translation
 
 log = logging.getLogger(__name__)
 
@@ -123,29 +123,27 @@ class Pipeline:
         self.store.write_sentence(s)
         self.state.add_sentence(s)
         # Spec §3: a full translation queue must block the producer for that
-        # language only, NEVER the segmenter. Shed load per-language instead
-        # of blocking: drop the oldest pending sentence for the wedged language
-        # (a gap in one language beats a global stall; the invariant checker
-        # will surface the missing translation).
+        # language only, NEVER the segmenter. Use submit_nowait which sheds the
+        # oldest pending sentence (a gap beats a global stall; the invariant
+        # checker will surface the missing translation via the synthetic failed
+        # Translation emitted here for the shed sentence).
         for lang, w in self.workers.items():
             if self._draining and not w.alive():
                 continue              # dead worker during shutdown: skip it
-            try:
-                w.q.put_nowait(s)
-            except queue.Full:
-                try:
-                    w.q.get_nowait()  # drop oldest pending for this language
-                except queue.Empty:
-                    pass
+            shed = w.submit_nowait(s)
+            if shed is not None:
+                # shed is the oldest sentence evicted to make room; synthesize
+                # a terminal failed Translation so (sid, lang) invariant holds.
                 self._on_status(StatusEvent(
                     level="warn", source=f"translate.{lang}",
-                    message="queue full; dropped oldest pending sentence",
+                    message=f"queue full; shed sid={shed.sid}",
                     t_wall=time.monotonic()))
-                try:
-                    w.q.put_nowait(s)
-                except queue.Full:
-                    log.warning("translate.%s queue still full; dropping sid=%d",
-                                lang, s.sid)
+                self._on_translation(Translation(
+                    sid=shed.sid, lang=lang,
+                    text="⟨translation unavailable⟩", status="failed",
+                    t_done_wall=time.monotonic(),
+                    model=self.cfg["translate"]["model"],
+                    attempt=0))
 
     def shutdown(self) -> None:
         """SIGINT order (spec §5.8): stop source (caller's job) ->
