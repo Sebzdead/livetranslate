@@ -33,7 +33,7 @@ provider = "openai_chat"              # DeepSeek is OpenAI-compatible
 base_url = "https://api.deepseek.com"
 model = "deepseek-v4-flash"
 api_key_env = "TRANSLATE_API_KEY"
-timeout_s = 10
+timeout_s = 20                        # DeepSeek can be slow under load; 10s caused 2 timeouts in test run
 batch_threshold = 3
 batch_max = 6
 # [translate.fallback] optional second provider block
@@ -45,7 +45,7 @@ domain_blurb = "domain_blurb.txt"
 [display]
 host = "0.0.0.0"
 port = 8765                     # 8080 is occupied by another app on this machine
-font_scale = 1.6
+font_scale = 1.4
 
 [health]
 stall_s = 10

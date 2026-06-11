@@ -73,6 +73,9 @@ def main(argv=None) -> int:
                     if feed_t0 is None:
                         feed_t0 = time.monotonic()
                     pipe.feed(chunk)
+    except KeyboardInterrupt:
+        # Ctrl-C ends the feed early; still drain, persist, and write the report.
+        log.info("interrupted: draining and writing report...")
     finally:
         pipe.shutdown()
     # Write feed.json for end-to-end latency computation in metrics
