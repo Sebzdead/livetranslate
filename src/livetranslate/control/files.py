@@ -4,10 +4,31 @@ All writes are atomic (tmp file in the same directory + os.replace) so a crash
 mid-write never corrupts an event-day file.
 """
 import os
+import re
 import tempfile
 from pathlib import Path
 
 SECRET_KEYS = ("ELEVENLABS_API_KEY", "ASSEMBLYAI_API_KEY", "TRANSLATE_API_KEY")
+
+# Regex patterns for parsing .env values
+_QUOTED = re.compile(r'^(["\'])(.*)\1\s*(?:#.*)?$')
+_UNQUOTED = re.compile(r'^(.*?)(\s+#.*)?$')
+
+
+def _parse_value(raw: str) -> str:
+    """Parse a value from .env, handling quotes and comments.
+
+    - Quoted values ("..." or '...') preserve everything inside the quotes
+    - Unquoted values are stripped and inline comments (space-hash) are removed
+    - Pure comment lines (starting with #) return empty string
+    """
+    raw = raw.strip()
+    if raw.startswith("#"):
+        return ""
+    m = _QUOTED.match(raw)
+    if m:
+        return m.group(2)
+    return _UNQUOTED.match(raw).group(1).strip()
 
 
 def atomic_write(path, text: str) -> None:
@@ -26,9 +47,10 @@ def atomic_write(path, text: str) -> None:
 
 
 def read_env(path) -> dict:
-    """Parse KEY=VALUE lines; skip comments/blanks; strip optional quotes.
+    """Parse KEY=VALUE lines; skip comments/blanks; handle quoted values.
 
-    Handles optional 'export ' prefix and inline comments (space-hash).
+    Handles optional 'export ' prefix, quoted values (with inline comments),
+    and inline comments (space-hash) for unquoted values.
     """
     p = Path(path)
     if not p.exists():
@@ -41,15 +63,9 @@ def read_env(path) -> dict:
         # Remove optional 'export ' prefix
         if line.startswith("export "):
             line = line[7:].lstrip()
-        key, _, value = line.partition("=")
+        key, _, raw_value = line.partition("=")
         key = key.strip()
-        value = value.strip()
-        # If value is not quoted, strip inline comments
-        if value and not (value.startswith('"') or value.startswith("'")):
-            if " #" in value:
-                value = value.split(" #")[0].strip()
-        # Strip quotes
-        value = value.strip('"').strip("'")
+        value = _parse_value(raw_value)
         out[key] = value
     return out
 
@@ -58,7 +74,8 @@ def write_env_keys(path, updates: dict) -> None:
     """Update KEY=VALUE lines in place, preserving unrelated lines and comments.
 
     Empty values are skipped so a blank form field never wipes a stored key.
-    Handles optional 'export ' prefix in existing lines.
+    Handles optional 'export ' prefix in existing lines (intentionally not
+    round-tripped: updated lines are rewritten as plain KEY=value).
     """
     p = Path(path)
     lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else []

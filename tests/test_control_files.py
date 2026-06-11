@@ -59,3 +59,13 @@ def test_write_env_keys_updates_export_line_without_duplicating(tmp_path):
     text = p.read_text()
     assert text.count("ELEVENLABS_API_KEY") == 1
     assert files.read_env(p) == {"ELEVENLABS_API_KEY": "new"}
+
+
+def test_read_env_quoted_value_with_trailing_comment(tmp_path):
+    p = tmp_path / ".env"
+    p.write_text('A="val" # comment\nB=\'v # x\'\nC=  # commented out\nD=plain#nothash\n')
+    env = files.read_env(p)
+    assert env["A"] == "val"
+    assert env["B"] == "v # x"
+    assert env["C"] == ""
+    assert env["D"] == "plain#nothash"
