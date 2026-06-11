@@ -150,6 +150,10 @@ def update_config_fields(path, updates: dict) -> None:
         node = doc
         *parents, leaf = dotted.split(".")
         for part in parents:
-            node = node[part]
+            try:
+                node = node[part]
+            except KeyError:
+                raise KeyError(
+                    f"config.toml has no section [{'.'.join(parents)}] — cannot set {dotted!r}")
         node[leaf] = value
     write_config_text(path, tomlkit.dumps(doc))

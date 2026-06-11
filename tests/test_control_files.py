@@ -134,3 +134,10 @@ def test_update_config_fields_preserves_comments(tmp_path):
     assert "# pinned" in text                      # comment survived
     assert 'device_substring = "USB Audio"' in text
     assert '"de"' in text
+
+
+def test_update_config_fields_raises_on_missing_section(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text(GOOD_TOML)
+    with pytest.raises(KeyError, match="no section"):
+        files.update_config_fields(p, {"nonexistent.key": "x"})
