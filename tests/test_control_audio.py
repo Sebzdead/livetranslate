@@ -62,3 +62,13 @@ def test_level_meter_silence_floor(fake_sounddevice):
     meter = LevelMeter(device_index=0)
     meter._callback(b"\x00\x00" * 1600, 1600, None, None)
     assert meter.read()["rms_dbfs"] <= -90.0
+
+
+def test_level_meter_start_twice_is_noop(fake_sounddevice):
+    from livetranslate.control.audio_probe import LevelMeter
+    meter = LevelMeter(device_index=1)
+    meter.start()
+    first = meter._stream
+    meter.start()
+    assert meter._stream is first   # second start() must not replace the stream
+    meter.stop()

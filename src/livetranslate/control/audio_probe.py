@@ -4,12 +4,15 @@ The meter opens its own RawInputStream on the chosen device. It MUST be
 stopped before the pipeline launches so the device is not opened twice;
 server.py enforces this on /api/server/start.
 """
+import logging
 import math
 import threading
 
 import numpy as np
 
-SILENCE_DBFS = -120.0
+log = logging.getLogger(__name__)
+
+SILENCE_DBFS = -90.5
 
 
 def list_input_devices(substring: str = "") -> list:
@@ -38,6 +41,8 @@ class LevelMeter:
         self._stream = None
 
     def _callback(self, indata, frames, time_info, status_flags):
+        if status_flags:
+            log.warning("level meter status: %s", status_flags)
         pcm = np.frombuffer(bytes(indata), dtype=np.int16).astype(np.float64)
         if pcm.size == 0:
             return
@@ -48,6 +53,8 @@ class LevelMeter:
             self._peak_dbfs = 20 * math.log10(max(peak, 1.0) / 32768.0)
 
     def start(self) -> None:
+        if self._stream is not None:
+            return
         import sounddevice
         self._stream = sounddevice.RawInputStream(
             samplerate=16000, channels=1, dtype="int16",
