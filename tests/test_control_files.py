@@ -69,3 +69,68 @@ def test_read_env_quoted_value_with_trailing_comment(tmp_path):
     assert env["B"] == "v # x"
     assert env["C"] == ""
     assert env["D"] == "plain#nothash"
+
+
+GOOD_TOML = """\
+[session]
+source_language = "en"   # pinned
+output_dir = "sessions"
+
+[audio]
+device_substring = "Scarlett"
+chunk_ms = 100
+
+[asr]
+adapter = "elevenlabs"
+
+[translate]
+targets = ["es", "fr"]
+
+[glossary]
+path = "glossary.tsv"
+
+[display]
+host = "0.0.0.0"
+port = 8765
+"""
+
+
+def test_validate_config_accepts_good_toml():
+    assert files.validate_config_text(GOOD_TOML) == []
+
+
+def test_validate_config_rejects_syntax_error():
+    problems = files.validate_config_text("[session\nbroken")
+    assert len(problems) == 1 and "TOML" in problems[0]
+
+
+def test_validate_config_rejects_missing_section():
+    problems = files.validate_config_text("[session]\nsource_language='en'\n")
+    assert any("missing [audio]" in p for p in problems)
+
+
+def test_validate_config_rejects_bad_adapter_and_port():
+    bad = GOOD_TOML.replace('adapter = "elevenlabs"', 'adapter = "whisper"')
+    bad = bad.replace("port = 8765", "port = 99999")
+    problems = files.validate_config_text(bad)
+    assert any("adapter" in p for p in problems)
+    assert any("port" in p for p in problems)
+
+
+def test_write_config_text_rejects_invalid(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text(GOOD_TOML)
+    with pytest.raises(ValueError):
+        files.write_config_text(p, "[broken")
+    assert p.read_text() == GOOD_TOML  # untouched
+
+
+def test_update_config_fields_preserves_comments(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text(GOOD_TOML)
+    files.update_config_fields(p, {"audio.device_substring": "USB Audio",
+                                   "translate.targets": ["es", "fr", "de"]})
+    text = p.read_text()
+    assert "# pinned" in text                      # comment survived
+    assert 'device_substring = "USB Audio"' in text
+    assert '"de"' in text

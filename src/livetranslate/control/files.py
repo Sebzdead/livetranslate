@@ -6,6 +6,7 @@ mid-write never corrupts an event-day file.
 import os
 import re
 import tempfile
+import tomlkit
 from pathlib import Path
 
 SECRET_KEYS = ("ELEVENLABS_API_KEY", "ASSEMBLYAI_API_KEY", "TRANSLATE_API_KEY")
@@ -103,3 +104,52 @@ def mask(value: str) -> str:
     if not value:
         return ""
     return "…" + value[-4:] if len(value) > 4 else "…"
+
+
+REQUIRED_SECTIONS = ("session", "audio", "asr", "translate", "glossary", "display")
+
+
+def read_config_text(path) -> str:
+    return Path(path).read_text(encoding="utf-8")
+
+
+def validate_config_text(text: str) -> list:
+    """Return a list of human-readable problems; empty list means valid."""
+    try:
+        doc = tomlkit.parse(text)
+    except Exception as exc:
+        return [f"TOML syntax error: {exc}"]
+    problems = []
+    for section in REQUIRED_SECTIONS:
+        if section not in doc:
+            problems.append(f"missing [{section}] section")
+    if problems:
+        return problems
+    if doc["asr"].get("adapter") not in ("elevenlabs", "assemblyai"):
+        problems.append("asr.adapter must be 'elevenlabs' or 'assemblyai'")
+    if not list(doc["translate"].get("targets", [])):
+        problems.append("translate.targets must list at least one language")
+    port = doc["display"].get("port")
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        problems.append("display.port must be an integer between 1 and 65535")
+    return problems
+
+
+def write_config_text(path, text: str) -> None:
+    problems = validate_config_text(text)
+    if problems:
+        raise ValueError("; ".join(problems))
+    atomic_write(path, text)
+
+
+def update_config_fields(path, updates: dict) -> None:
+    """Apply {"audio.device_substring": "..."}-style updates via tomlkit so
+    comments and ordering in config.toml are preserved."""
+    doc = tomlkit.parse(read_config_text(path))
+    for dotted, value in updates.items():
+        node = doc
+        *parents, leaf = dotted.split(".")
+        for part in parents:
+            node = node[part]
+        node[leaf] = value
+    write_config_text(path, tomlkit.dumps(doc))
