@@ -29,9 +29,9 @@ max_pending_s = 12
 
 [translate]
 targets = ["es", "fr", "de", "pt"]   # add "ar", "zh" to enable
-provider = ""                         # request/response mapping key; set at deploy time
-base_url = ""
-model = ""                            # fast tier; set at deploy time
+provider = "openai_chat"              # DeepSeek is OpenAI-compatible
+base_url = "https://api.deepseek.com"
+model = "deepseek-chat"
 api_key_env = "TRANSLATE_API_KEY"
 timeout_s = 10
 batch_threshold = 3
