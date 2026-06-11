@@ -25,3 +25,11 @@ def test_final_normalized():
 def test_non_transcript_messages_return_none():
     a = make_adapter()
     assert a._normalize(FIXTURES["config_ack"]) is None
+
+
+def test_keyterm_longer_than_20_chars_excluded():
+    long_term = "a" * 21   # 21 chars — exceeds ElevenLabs realtime 20-char limit
+    a = ElevenLabsScribeAdapter(api_key="test", language="en",
+                                keyterms=[long_term, "short"])
+    assert long_term not in a.keyterms
+    assert "short" in a.keyterms

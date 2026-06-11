@@ -19,7 +19,8 @@ _TRANSCRIPT_KINDS = {
     "committed_transcript": "final",
     "committed_transcript_with_timestamps": "final",
 }
-KEYTERMS_CAP = 50   # ElevenLabs realtime cap (docs); surcharged
+KEYTERMS_CAP = 50    # ElevenLabs realtime cap (docs); surcharged
+KEYTERM_MAX_LEN = 20  # ElevenLabs realtime per-term character limit
 
 class ElevenLabsScribeAdapter:
     name = "elevenlabs"
@@ -28,6 +29,15 @@ class ElevenLabsScribeAdapter:
 
     def __init__(self, api_key: str, language: str, keyterms: list[str],
                  sample_rate: int = 16000):
+        # Drop terms that exceed the per-term character cap
+        long_terms = [k for k in keyterms if len(k) > KEYTERM_MAX_LEN]
+        if long_terms:
+            log.warning(
+                "elevenlabs: %d keyterm(s) exceeded %d-char limit and were dropped: %s",
+                len(long_terms), KEYTERM_MAX_LEN,
+                ", ".join(repr(t) for t in long_terms),
+            )
+            keyterms = [k for k in keyterms if len(k) <= KEYTERM_MAX_LEN]
         if len(keyterms) > KEYTERMS_CAP:
             log.warning("elevenlabs: keyterms truncated %d -> %d", len(keyterms), KEYTERMS_CAP)
             keyterms = keyterms[:KEYTERMS_CAP]

@@ -22,6 +22,7 @@ class DisplayState:
         self.translations = {l: {} for l in langs}
         self.tentative_tail = ""
         self.statuses = []
+        self.status_seq = 0   # monotonically increasing; incremented by add_status
         self.version = 0
 
     def _bump(self):
@@ -47,7 +48,24 @@ class DisplayState:
         with self._cond:
             self.statuses.append(e)
             del self.statuses[:-200]
+            self.status_seq += 1
             self._bump()
+
+    def statuses_since(self, idx: int) -> tuple:
+        """Return (new_items, new_total) where new_items are StatusEvents not yet seen.
+
+        idx is the caller's last-known status_seq value (0 = never seen anything).
+        Handles the trim-to-200 window gracefully: if idx is so old that some events
+        have been trimmed, returns only the retained tail.
+        Returns (list_of_StatusEvent, current_status_seq).
+        """
+        with self._cond:
+            unseen = self.status_seq - idx
+            if unseen <= 0:
+                return ([], self.status_seq)
+            # Clamp to what we actually retain (up to 200 items)
+            new = self.statuses[max(0, len(self.statuses) - unseen):]
+            return (list(new), self.status_seq)
 
     def wait_for_change(self, version, timeout=15.0):
         with self._cond:
@@ -126,17 +144,28 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.flush()
 
-        after_sid = int(self.headers.get("Last-Event-ID", -1))
+        try:
+            after_sid = int(self.headers.get("Last-Event-ID", -1))
+        except ValueError:
+            after_sid = -1
         version = -1
+        sent_statuses = 0   # status_seq index: how many status events sent to this client
         try:
             while True:
-                for item in self.state.snapshot_lang(lang, after_sid):
-                    self._sse_send(item["sid"], item)
-                    after_sid = max(after_sid, item["sid"])
-                if lang == "src":
-                    self._sse_send(None, {"type": "tail", "text": self.state.tentative_tail})
                 if lang == "status":
+                    # Send any new StatusEvents that arrived since last iteration
+                    new_items, sent_statuses = self.state.statuses_since(sent_statuses)
+                    for e in new_items:
+                        self._sse_send(None, {"type": "status", "level": e.level,
+                                              "source": e.source, "message": e.message})
+                    # Also send the periodic lag frame for the operator table
                     self._sse_send(None, {"type": "status", "lag": self.state.lag_by_lang()})
+                else:
+                    for item in self.state.snapshot_lang(lang, after_sid):
+                        self._sse_send(item["sid"], item)
+                        after_sid = max(after_sid, item["sid"])
+                    # Send tail activity indicator on ALL non-status streams (src + audience)
+                    self._sse_send(None, {"type": "tail", "text": self.state.tentative_tail})
                 new_version = self.state.wait_for_change(version)
                 if new_version == version:
                     # timeout — send keepalive

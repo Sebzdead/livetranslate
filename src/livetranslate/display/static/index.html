@@ -130,6 +130,7 @@ function connectStatus() {
       // Show error banner if level is error
       if (ev.level === "error") {
         banner.textContent = ev.message || "Error";
+        banner.style.display = "";  // clear any inline override before class drives display
         banner.className = "error";
       } else if (banner.className === "error") {
         // Clear error when a clean status arrives

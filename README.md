@@ -219,13 +219,13 @@ Run through this the day before the event and again in the room before doors ope
 | # | Criterion | Automated? | Notes |
 |---|---|---|---|
 | 1 | Jargon recall ≥ 90% (keyterms enabled; show uplift vs keyterms-off) | Partial — `report.json` computes it | Needs owner recordings + `ELEVENLABS_API_KEY` |
-| 2 | Latency p50 ≤ 4 s, p95 ≤ 7 s at rtf=1.0 | Partial — `report.json` `latency` field | Needs real recordings + live keys |
+| 2 | Latency p50 ≤ 4 s, p95 ≤ 7 s at rtf=1.0 | Partial — `report.json` `audio_end_to_translation` field (requires a harness run; field is absent for live sessions) | Needs real recordings + live keys |
 | 3 | Chaos test passes at 3 cut offsets including one mid-sentence | Yes — `harness/chaos.py` asserts this | Needs `ELEVENLABS_API_KEY` |
 | 4 | 2-hour soak passes (zero unrecovered disconnects, RSS growth < 150 MB) | Partial — invariant checks run; RSS monitored manually | Needs 2 h of recordings + live keys |
 | 5 | `--resume` after `kill -9` restores displays byte-identical | Covered by unit tests for Store + resume path | Full live validation needs a live session |
-| 6 | Operator console reflects forced disconnect within 5 s and shows recovery | Covered by watchdog unit tests | Live validation: pull the network cable and observe `/` |
+| 6 | Operator console reflects forced disconnect within 5 s and shows recovery | Covered by watchdog unit tests + status SSE streaming (error-level StatusEvents now stream level/message to the banner in real time) | Live validation: pull the network cable and observe `/` |
 | 7 | Bakeoff report generated for both adapters on same inputs | Yes — `harness/bakeoff.py` + `bakeoff.csv` | Needs both `ELEVENLABS_API_KEY` and `ASSEMBLYAI_API_KEY` |
-| 8 | Glossary renderings present in ≥ 95% of translated sentences containing a glossary term | Yes — `report.json` `jargon_recall` per language | Computed by metrics; review `report.md` |
+| 8 | Glossary renderings present in ≥ 95% of translated sentences containing a glossary term | Yes — `report.json` `glossary_rendering_rate` (aggregate across all languages) | Computed by metrics; review `report.md` |
 
 **Vendor items that must be validated against live keys before each event** (see `docs/vendor-notes.md` for full detail):
 

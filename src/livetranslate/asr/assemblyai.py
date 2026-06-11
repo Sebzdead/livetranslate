@@ -71,7 +71,8 @@ class AssemblyAIStreamingAdapter:
             ("sample_rate", str(self.sample_rate)),
             ("encoding", "pcm_s16le"),
             ("speech_model", "u3-rt-pro"),
-            ("format_turns", "true"),
+            # format_turns is not a valid parameter for u3-rt-pro (removed in U3 Pro;
+            # formatting is always on). See docs/vendor-notes.md AssemblyAI section.
         ]
         # Repeated keyterms_prompt params (one per term)
         params += [("keyterms_prompt", k) for k in self.keyterms]

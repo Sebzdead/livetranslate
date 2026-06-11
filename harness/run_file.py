@@ -1,7 +1,9 @@
 import argparse
+import json
 import logging
 import os
 import sys
+import time
 
 from livetranslate.asr.base import ResilientASR
 from livetranslate.audio import FileSource
@@ -62,14 +64,22 @@ def main(argv=None) -> int:
                     glossary_hash=glossary.sha256)
     resilient.ring = pipe.ring
     pipe.start()
+    feed_t0 = None
     try:
         for _ in range(args.loop):
             for path in args.audio:
                 for chunk in FileSource(path, chunk_ms=cfg["audio"]["chunk_ms"],
                                         rtf=rtf).chunks():
+                    if feed_t0 is None:
+                        feed_t0 = time.monotonic()
                     pipe.feed(chunk)
     finally:
         pipe.shutdown()
+    # Write feed.json for end-to-end latency computation in metrics
+    if feed_t0 is not None:
+        feed_json = {"feed_t0_monotonic": feed_t0, "rtf": rtf}
+        (pipe.store.session_dir / "feed.json").write_text(
+            json.dumps(feed_json), encoding="utf-8")
     try:
         from harness.metrics import write_report
         write_report(pipe.store.session_dir, ref_path=args.ref,

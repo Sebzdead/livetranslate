@@ -85,7 +85,36 @@ def session_latencies(session_dir) -> dict:
     langs = {k[1] for k in t_by}
     sent_to_trans = [t_by[(s["sid"], lang)]["t_done_wall"] - s["t_finalized_wall"]
                      for s in sentences for lang in langs if (s["sid"], lang) in t_by]
-    return {"sentence_to_translation": latency_percentiles(sent_to_trans)}
+    result = {"sentence_to_translation": latency_percentiles(sent_to_trans)}
+
+    # End-to-end latencies — only computable when feed.json exists (harness runs)
+    feed_path = session_dir / "feed.json"
+    if feed_path.exists():
+        feed = json.loads(feed_path.read_text(encoding="utf-8"))
+        feed_t0 = feed["feed_t0_monotonic"]
+        rtf = feed["rtf"]
+
+        # audio_end_to_sentence: when was the sentence finalized relative to audio end time
+        audio_end_to_sent = []
+        for s in sentences:
+            if "t_audio_end_ms" in s and "t_finalized_wall" in s:
+                audio_end_wall = feed_t0 + s["t_audio_end_ms"] / 1000.0 / rtf
+                audio_end_to_sent.append(s["t_finalized_wall"] - audio_end_wall)
+        result["audio_end_to_sentence"] = latency_percentiles(audio_end_to_sent)
+
+        # audio_end_to_translation: headline §6 end-to-end metric
+        audio_end_to_trans = []
+        for s in sentences:
+            if "t_audio_end_ms" not in s:
+                continue
+            audio_end_wall = feed_t0 + s["t_audio_end_ms"] / 1000.0 / rtf
+            for lang in langs:
+                t = t_by.get((s["sid"], lang))
+                if t and "t_done_wall" in t:
+                    audio_end_to_trans.append(t["t_done_wall"] - audio_end_wall)
+        result["audio_end_to_translation"] = latency_percentiles(audio_end_to_trans)
+
+    return result
 
 
 def write_report(session_dir, ref_path, glossary, langs) -> None:
