@@ -1,7 +1,5 @@
 # livetranslate
 
-![LiveTranslate UI Preview](UI.png)
-
 Captures a conference speaker's audio, transcribes it in real time with ElevenLabs Scribe v2 Realtime (or AssemblyAI Universal-3 Pro as failover/bake-off adapter), segments the transcript into finalized sentences, translates each sentence into multiple target languages via an LLM API with a glossary-enforced terminology, and serves per-language reading displays to browsers on the local network. Attendees point their phones at a URL on the venue Wi-Fi and read the talk live in their own language.
 
 **Documentation**
@@ -55,9 +53,9 @@ Edit `config.toml` before each event. All secrets go in environment variables on
 
 ```toml
 [translate]
-provider  = "openai_chat"              # DeepSeek is OpenAI-compatible
-base_url  = "https://api.deepseek.com"
-model     = "deepseek-v4-flash"
+provider  = "anthropic"                        # or "openai_chat"
+base_url  = "https://api.anthropic.com"        # or "https://api.openai.com"
+model     = "claude-haiku-4-5"                 # fast tier; haiku-4-5 recommended
 ```
 
 ### Secrets — environment variables only

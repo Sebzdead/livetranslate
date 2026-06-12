@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "control-panel",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "livetranslate.control", "--no-browser", "--port", "8766"],
+      "env": { "PYTHONPATH": "src" },
+      "port": 8766
+    }
+  ]
+}
