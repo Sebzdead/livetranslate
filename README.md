@@ -1,6 +1,15 @@
 # livetranslate
 
-Captures a conference speaker's audio, transcribes it in real time with ElevenLabs Scribe v2 Realtime (or AssemblyAI Universal-3 Pro as failover/bake-off adapter), segments the transcript into finalized sentences, translates each sentence into multiple target languages via an LLM API with a glossary-enforced terminology, and serves per-language reading displays to browsers on the local network. See `live-translation-pipeline-spec.md` for the full design specification.
+Captures a conference speaker's audio, transcribes it in real time with ElevenLabs Scribe v2 Realtime (or AssemblyAI Universal-3 Pro as failover/bake-off adapter), segments the transcript into finalized sentences, translates each sentence into multiple target languages via an LLM API with a glossary-enforced terminology, and serves per-language reading displays to browsers on the local network. Attendees point their phones at a URL on the venue Wi-Fi and read the talk live in their own language.
+
+**Documentation**
+
+| Document | Contents |
+|---|---|
+| This README | Install, configuration, operator control panel, live runs, test harness |
+| [`live-translation-pipeline-spec.md`](live-translation-pipeline-spec.md) | Full design specification — architecture, invariants, failure handling |
+| [`docs/vendor-notes.md`](docs/vendor-notes.md) | ElevenLabs / AssemblyAI API verification notes and open uncertainties |
+| [`docs/superpowers/plans/`](docs/superpowers/plans/) | Implementation plans (pipeline, operator control panel) |
 
 ---
 
@@ -273,3 +282,9 @@ Run through this the day before the event and again in the room before doors ope
 ## Architecture
 
 Audio → MicSource/FileSource → RingBuffer → ResilientASR (ElevenLabs or AssemblyAI) → Segmenter → per-language TranslationWorker threads → append-only JSONL Store → ThreadingHTTPServer SSE display. See `live-translation-pipeline-spec.md` §3 for the full thread/queue inventory and `docs/superpowers/plans/2026-06-09-livetranslate-pipeline.md` for the implementation plan.
+
+---
+
+## License
+
+[MIT](LICENSE)
