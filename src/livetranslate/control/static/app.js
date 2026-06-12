@@ -1,5 +1,6 @@
 /* Control panel client: thin polling layer over the JSON API. */
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 async function api(path, payload) {
   const opts = payload === undefined ? {} : {
@@ -20,7 +21,7 @@ function setMsg(id, text, ok) {
 }
 
 /* ---------- state poll ---------- */
-let running = false, logCursor = 0, metering = false;
+let running = false, logCursor = 0, metering = false, meterGen = 0;
 
 async function refreshState() {
   const st = await api("/api/state");
@@ -80,51 +81,69 @@ async function refreshDevices() {
   const body = await api("/api/audio/devices");
   $("devices").innerHTML = body.devices.map((d) =>
     `<option value="${d.index}" ${d.matches ? "selected" : ""}>
-       ${d.name}${d.matches ? " ✓ matches config" : ""}</option>`).join("");
+       ${esc(d.name)}${d.matches ? " ✓ matches config" : ""}</option>`).join("");
+}
+
+function stopMeterUi() {
+  metering = false;
+  meterGen++;
+  $("btn-meter").textContent = "Test level";
+  $("meterbar").style.width = "0%";
+  $("meter-num").textContent = "";
 }
 
 async function toggleMeter() {
   if (metering) {
     await api("/api/meter/stop", {});
-    metering = false;
-    $("btn-meter").textContent = "Test level";
-    $("meterbar").style.width = "0%";
-    $("meter-num").textContent = "";
+    stopMeterUi();
     return;
   }
   try {
     await api("/api/meter", { device_index: parseInt($("devices").value, 10) });
     metering = true;
+    meterGen++;
     $("btn-meter").textContent = "Stop test";
-    pollMeter();
+    pollMeter(meterGen);
   } catch (e) { setMsg("audio-msg", e.message, false); }
 }
 
-async function pollMeter() {
-  if (!metering) return;
+async function pollMeter(gen) {
+  if (gen !== meterGen) return;            // stale loop exits
   try {
     const r = await api("/api/meter");
+    if (gen !== meterGen) return;          // re-check after await
     const pct = Math.max(0, Math.min(100, (r.rms_dbfs + 60) / 60 * 100));
     $("meterbar").style.width = pct + "%";
     $("meter-num").textContent = r.rms_dbfs + " / " + r.peak_dbfs + " dBFS";
-  } catch (e) { /* meter stopped server-side */ metering = false; }
-  setTimeout(pollMeter, 150);
+  } catch (e) { stopMeterUi(); return; }   // meter stopped server-side
+  setTimeout(() => pollMeter(gen), 150);
 }
 
 /* ---------- config ---------- */
 function parseTomlValue(text, section, key) {
   // crude single-value extraction for prefilling the form; raw editor is authoritative
   const sec = text.split("[" + section + "]")[1] || "";
-  const m = sec.split("[")[0].match(new RegExp(key + '\\s*=\\s*"?([^"\\n#]*)"?'));
+  const m = sec.split("[")[0].match(new RegExp('(?:^|\\n)\\s*' + key + '\\s*=\\s*"?([^"\\n#]*)"?'));
   return m ? m[1].trim() : "";
+}
+
+function setSelect(id, value) {
+  const sel = $(id);
+  if (value && ![...sel.options].some((o) => o.value === value)) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    sel.appendChild(opt);
+  }
+  sel.value = value;
 }
 
 async function refreshConfig() {
   const body = await api("/api/config");
   $("cfg-raw").value = body.text;
   $("cfg-device").value = parseTomlValue(body.text, "audio", "device_substring");
-  $("cfg-srclang").value = parseTomlValue(body.text, "session", "source_language");
-  $("cfg-adapter").value = parseTomlValue(body.text, "asr", "adapter");
+  setSelect("cfg-srclang", parseTomlValue(body.text, "session", "source_language"));
+  setSelect("cfg-adapter", parseTomlValue(body.text, "asr", "adapter"));
   const targets = (body.text.match(/targets\s*=\s*\[([^\]]*)\]/) || [, ""])[1];
   $("cfg-targets").value = targets.replace(/["\s]/g, "");
 }
@@ -183,7 +202,7 @@ async function saveKeys() {
 async function startServer() {
   try {
     await api("/api/server/start", {});
-    metering = false; $("btn-meter").textContent = "Test level";
+    stopMeterUi();
     setMsg("launch-msg", "Pipeline starting — watch the log below.", true);
   } catch (e) { setMsg("launch-msg", e.message, false); }
   await refreshState();
