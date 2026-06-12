@@ -189,3 +189,14 @@ def test_index_and_appjs_served(srv):
         assert b"LiveTranslate" in resp.read()
     with urllib.request.urlopen(base + "/app.js") as resp:
         assert resp.status == 200
+
+
+def test_main_builds_server_and_opens_browser(tmp_path, monkeypatch):
+    from livetranslate.control import __main__ as main_mod
+    (tmp_path / "config.toml").write_text(CONFIG)
+    (tmp_path / "glossary.tsv").write_text(TSV)
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url))
+    rc = main_mod.main(["--root", str(tmp_path), "--port", "0", "--smoke-test"])
+    assert rc == 0
+    assert opened and opened[0].startswith("http://127.0.0.1:")
