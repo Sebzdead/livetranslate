@@ -70,6 +70,41 @@ Columns `ar` and `zh` may be empty. `priority 1` terms are loaded first into the
 
 ---
 
+## Operator control panel (recommended)
+
+A local web app for the technical operator — no terminal needed.
+
+**Start it:** double-click `Start LiveTranslate.command` (Mac) or
+`Start LiveTranslate.bat` (Windows). First run creates the Python
+environment automatically (needs Python ≥ 3.11 installed). Your browser
+opens `http://127.0.0.1:8766/`.
+
+From the panel you can:
+
+- **Edit configuration** — common fields (audio device match, source
+  language, adapter, target languages) or the raw `config.toml`
+  (validated before save; comments preserved).
+- **Edit the glossary** — validated with the real loader; shows term and
+  keyterm counts against the ElevenLabs cap of 50.
+- **Manage API keys** — writes `.env`; existing keys shown masked
+  (last 4 chars), never echoed in full.
+- **Check audio** — list input devices (the one matching
+  `audio.device_substring` is flagged) and run a live RMS/peak level
+  meter before going live. The meter is released automatically when the
+  pipeline starts.
+- **Launch / stop the server** — runs `python -m livetranslate` as a
+  child process; SIGINT/CTRL_BREAK drain so sessions close cleanly;
+  live log tail in the panel.
+- **Share audience links** — operator console and per-language URLs
+  built on the machine's Wi-Fi/LAN IP, with copy buttons; the operator
+  console is embedded in the panel while running.
+
+The control panel binds to **localhost only** (it can read and write API
+keys). The display server it launches binds `0.0.0.0:<display.port>` as
+before, so the audience links work for anyone on the venue network.
+
+---
+
 ## Live run
 
 ```sh
