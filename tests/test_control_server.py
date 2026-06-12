@@ -180,3 +180,12 @@ def test_meter_start_blocked_while_pipeline_runs(srv, fake_sounddevice):
     assert status == 409
     status, _ = post(base, "/api/server/stop")
     assert status == 200
+
+
+def test_index_and_appjs_served(srv):
+    base, _ = srv
+    with urllib.request.urlopen(base + "/") as resp:
+        assert resp.status == 200
+        assert b"LiveTranslate" in resp.read()
+    with urllib.request.urlopen(base + "/app.js") as resp:
+        assert resp.status == 200

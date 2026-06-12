@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiveTranslate — Operator Control Panel</title>
+<style>
+  :root { --bg:#101418; --card:#1a2128; --text:#e6edf3; --dim:#8b98a5;
+          --accent:#3fb950; --warn:#d29922; --err:#f85149; --line:#2d3640; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 20px; } h2 { font-size: 15px; margin: 0 0 12px; color: var(--dim);
+       text-transform: uppercase; letter-spacing: .06em; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:16px; margin-bottom:16px; }
+  button { background:#238636; color:#fff; border:0; border-radius:6px;
+           padding:8px 18px; font-size:15px; cursor:pointer; }
+  button.secondary { background:#30363d; }
+  button.danger { background:#b62324; }
+  button:disabled { opacity:.45; cursor:default; }
+  input[type=text], input[type=password], select, textarea {
+    width:100%; background:#0d1117; color:var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:7px 9px; font-size:14px; }
+  textarea { font-family: ui-monospace, Menlo, Consolas, monospace; min-height:200px; }
+  label { display:block; margin:10px 0 4px; color:var(--dim); font-size:13px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .row > * { flex:1; min-width:180px; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:13px; }
+  .pill.ok { background:#1f3326; color:var(--accent); }
+  .pill.off { background:#33231f; color:var(--warn); }
+  .pill.err { background:#3a1d1f; color:var(--err); }
+  table { width:100%; border-collapse:collapse; }
+  td, th { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; }
+  a { color:#58a6ff; word-break:break-all; }
+  #meterwrap { height:18px; background:#0d1117; border:1px solid var(--line);
+               border-radius:6px; overflow:hidden; position:relative; }
+  #meterbar { height:100%; width:0%; background:linear-gradient(90deg,#238636 70%,#d29922 88%,#f85149); }
+  #logs { background:#0d1117; border:1px solid var(--line); border-radius:6px;
+          font:12px/1.5 ui-monospace, Menlo, Consolas, monospace; padding:8px;
+          height:200px; overflow-y:auto; white-space:pre-wrap; }
+  iframe { width:100%; height:420px; border:1px solid var(--line); border-radius:10px;
+           background:#fff; }
+  .msg { font-size:13px; margin-top:8px; min-height:18px; }
+  .msg.ok { color:var(--accent); } .msg.err { color:var(--err); }
+  .copy { background:#30363d; padding:2px 10px; font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>LiveTranslate <span id="status" class="pill off">stopped</span></h1>
+
+  <section class="card" id="launch-card">
+    <h2>Server</h2>
+    <div class="row">
+      <button id="btn-start">Start server</button>
+      <button id="btn-stop" class="danger" disabled>Stop server</button>
+      <span id="launch-info" style="color:var(--dim)"></span>
+    </div>
+    <div class="msg" id="launch-msg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Audience links</h2>
+    <div style="color:var(--dim); font-size:13px; margin-bottom:8px;">
+      Share these on the venue Wi-Fi. LAN IP: <strong id="lan-ip">…</strong></div>
+    <table id="links"></table>
+  </section>
+
+  <section class="card">
+    <h2>Audio input</h2>
+    <div class="row">
+      <select id="devices"></select>
+      <button id="btn-meter" class="secondary">Test level</button>
+    </div>
+    <label>Input level (RMS / peak dBFS) <span id="meter-num" style="color:var(--dim)"></span></label>
+    <div id="meterwrap"><div id="meterbar"></div></div>
+    <div class="msg" id="audio-msg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Configuration</h2>
+    <div class="row">
+      <div><label>Audio device match</label><input type="text" id="cfg-device"></div>
+      <div><label>Source language</label>
+        <select id="cfg-srclang"><option>en</option><option>de</option></select></div>
+      <div><label>ASR adapter</label>
+        <select id="cfg-adapter"><option>elevenlabs</option><option>assemblyai</option></select></div>
+    </div>
+    <label>Target languages (comma-separated BCP-47, e.g. es, fr, de, pt)</label>
+    <input type="text" id="cfg-targets">
+    <details style="margin-top:12px;">
+      <summary style="color:var(--dim); cursor:pointer;">Advanced: edit raw config.toml</summary>
+      <textarea id="cfg-raw" spellcheck="false"></textarea>
+      <div style="margin-top:8px;"><button id="btn-save-raw" class="secondary">Save raw TOML</button></div>
+    </details>
+    <div style="margin-top:12px;"><button id="btn-save-cfg">Save configuration</button></div>
+    <div class="msg" id="cfg-msg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Glossary</h2>
+    <textarea id="glossary" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px;">
+      <button id="btn-save-glossary">Save glossary</button>
+      <span id="glossary-counts" style="color:var(--dim)"></span>
+    </div>
+    <div class="msg" id="glossary-msg"></div>
+  </section>
+
+  <section class="card">
+    <h2>API keys</h2>
+    <div id="keys"></div>
+    <div style="margin-top:12px;"><button id="btn-save-keys">Save keys</button></div>
+    <div class="msg" id="keys-msg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Pipeline log</h2>
+    <div id="logs"></div>
+  </section>
+
+  <section class="card" id="console-card" style="display:none;">
+    <h2>Operator console</h2>
+    <iframe id="console" src="about:blank" title="Operator console"></iframe>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
