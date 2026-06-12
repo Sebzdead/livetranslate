@@ -217,7 +217,7 @@ Pass criteria: zero unrecovered disconnects, zero dead threads, RSS growth < 150
 
 ## Tests
 
-No API keys needed. All 74 tests run offline using fixtures.
+No API keys needed. All 145 tests run offline using fixtures.
 
 ```sh
 .venv/bin/python -m pytest tests/ -q
