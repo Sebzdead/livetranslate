@@ -2,7 +2,7 @@
 name = "livetranslate"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["sounddevice", "numpy", "websocket-client", "requests", "tomlkit"]
+dependencies = ["sounddevice", "numpy", "websocket-client", "requests", "tomlkit", "pypdf"]
 
 [project.optional-dependencies]
 harness = ["jiwer"]

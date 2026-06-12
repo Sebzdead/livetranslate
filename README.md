@@ -95,8 +95,16 @@ From the panel you can:
 - **Edit configuration** — common fields (audio device match, source
   language, adapter, target languages) or the raw `config.toml`
   (validated before save; comments preserved).
-- **Edit the glossary** — validated with the real loader; shows term and
-  keyterm counts against the ElevenLabs cap of 50.
+- **Edit the glossary** — as an editable table showing only the configured
+  target-language columns (raw TSV behind an "advanced" toggle); validated
+  with the real loader; shows term and keyterm counts against the
+  ElevenLabs cap of 50.
+- **Generate glossary from notes** — upload speaker notes or an abstract
+  (PDF or plain text) and the configured translate LLM (DeepSeek by
+  default) drafts terms for the active target languages. Drafted rows are
+  merged *under* the existing glossary (hand-edited rows always win) and
+  land in the table unsaved, for review — nothing touches `glossary.tsv`
+  until you press save.
 - **Manage API keys** — writes `.env`; existing keys shown masked
   (last 4 chars), never echoed in full.
 - **Check audio** — list input devices (the one matching
@@ -228,7 +236,7 @@ Pass criteria: zero unrecovered disconnects, zero dead threads, RSS growth < 150
 
 ## Tests
 
-No API keys needed. All 145 tests run offline using fixtures.
+No API keys needed. All 160 tests run offline using fixtures.
 
 ```sh
 .venv/bin/python -m pytest tests/ -q

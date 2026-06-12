@@ -148,6 +148,40 @@
   a:hover { color: #fff; text-shadow: var(--glow); }
   .copy { padding: 2px 6px; font-size: 11px; white-space: nowrap; }
 
+  /* ---------- glossary table ---------- */
+  #glossary-table-wrap { max-height: 380px; overflow: auto;
+                         border: 1px solid var(--line); background: #080808; }
+  #glossary-table { width: 100%; border-collapse: collapse; }
+  #glossary-table th { position: sticky; top: 0; z-index: 1; background: var(--panel);
+                       color: var(--green-dim); font-size: 11px; font-weight: 400;
+                       text-transform: uppercase; letter-spacing: .08em;
+                       padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  #glossary-table td { padding: 0; border-bottom: 1px solid var(--green-faint); }
+  #glossary-table input { width: 100%; border: 0; background: transparent;
+                          color: var(--green); font: inherit; font-size: 12px;
+                          padding: 5px 8px; caret-color: var(--green); }
+  #glossary-table input:focus { background: #101010; box-shadow: none; }
+  #glossary-table th.num, #glossary-table td.num { width: 56px; }
+  #glossary-table td.num input { text-align: center; }
+  #glossary-table th.del, #glossary-table td.del { width: 34px; text-align: center; }
+  button.delbtn { border: 0; padding: 2px 6px; color: var(--red);
+                  background: transparent; font-size: 12px; }
+  button.delbtn::before, button.delbtn::after { content: ""; }
+  button.delbtn:hover:not(:disabled) { background: var(--red); color: #000;
+                                       box-shadow: none; }
+  #glossary-table-wrap:has(tr:only-child)::after {
+    content: "── glossary empty — add a term or generate from notes ──";
+    display: block; padding: 14px; text-align: center; color: var(--green-faint);
+    font-size: 12px; }
+
+  input[type=file] { background: #080808; border: 1px dashed var(--line);
+                     color: var(--green-dim); font: inherit; font-size: 12px;
+                     padding: 5px; width: 100%; }
+  input[type=file]::file-selector-button {
+    background: transparent; color: var(--green); border: 1px solid var(--green-dim);
+    font: inherit; font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+    padding: 3px 10px; margin-right: 10px; cursor: pointer; }
+
   #meterwrap { height: 18px; background: #080808; border: 1px solid var(--line);
                overflow: hidden; position: relative; }
   #meterbar { height: 100%; width: 0%;
@@ -284,11 +318,24 @@
 
   <section class="card">
     <h2><span class="hdr">Glossary</span></h2>
-    <textarea id="glossary" spellcheck="false"></textarea>
+    <div class="row">
+      <input type="file" id="notes-file" accept=".pdf,.txt,.md,.text,text/plain,application/pdf">
+      <button id="btn-generate" class="secondary">Generate from notes</button>
+    </div>
+    <div class="hint" style="margin:6px 0 12px;">
+      Upload speaker notes or an abstract (PDF or plain text); DeepSeek drafts
+      terms for the configured target languages. Review the rows, then save.</div>
+    <div id="glossary-table-wrap"><table id="glossary-table"></table></div>
     <div class="row" style="margin-top:10px;">
+      <button id="btn-add-term" class="secondary">Add term</button>
       <button id="btn-save-glossary">Save glossary</button>
       <span id="glossary-counts" class="hint"></span>
     </div>
+    <details style="margin-top:12px;">
+      <summary>Advanced: edit raw TSV</summary>
+      <textarea id="glossary" spellcheck="false"></textarea>
+      <div style="margin-top:8px;"><button id="btn-raw-apply" class="secondary">Apply raw TSV to table</button></div>
+    </details>
     <div class="msg" id="glossary-msg"></div>
   </section>
 

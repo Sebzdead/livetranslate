@@ -3,6 +3,7 @@
 Same stdlib idiom as display/server.py: ThreadingHTTPServer + a handler class
 specialised per instance. JSON API + one static page.
 """
+import base64
 import json
 import logging
 import threading
@@ -33,6 +34,7 @@ class ControlState:
         self.pipeline = PipelineProcess(self.root)
         self.meter = None
         self.meter_lock = threading.Lock()
+        self.llm_post = None   # injectable transport for glossary generation tests
 
     def config_doc(self):
         return tomlkit.parse(files.read_config_text(self.config_path))
@@ -151,6 +153,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._post_config(payload)
             elif parsed.path == "/api/glossary":
                 self._post_glossary(payload)
+            elif parsed.path == "/api/glossary/generate":
+                self._post_glossary_generate(payload)
             elif parsed.path == "/api/keys":
                 updates = {k: v for k, v in payload.items() if k in files.SECRET_KEYS}
                 files.write_env_keys(self.state.env_path, updates)
@@ -214,6 +218,41 @@ class _Handler(BaseHTTPRequestHandler):
             return
         files.write_glossary_text(self.state.glossary_path(), text)
         self._json(200, result)
+
+    def _post_glossary_generate(self, payload):
+        """Generate glossary rows from an uploaded notes document. Returns the
+        merged TSV for operator review — the file is only written via the
+        normal save endpoint."""
+        from . import glossary_gen
+
+        if not payload.get("content_b64"):
+            self._json(400, {"error": "missing content_b64"})
+            return
+        doc = self.state.config_doc()
+        tcfg = doc["translate"]
+        env = files.read_env(self.state.env_path)
+        api_key = env.get(str(tcfg.get("api_key_env", "TRANSLATE_API_KEY")), "")
+        if not api_key:
+            self._json(400, {"error": "translate API key not set — save it under API keys first"})
+            return
+        try:
+            data = base64.b64decode(payload["content_b64"])
+            notes = glossary_gen.extract_text(data, str(payload.get("filename", "")))
+            targets = [str(t) for t in tcfg["targets"]]
+            gp = self.state.glossary_path()
+            existing = gp.read_text(encoding="utf-8") if gp.exists() else ""
+            merged, added, skipped = glossary_gen.generate(
+                notes, targets, existing, tcfg, api_key, post=self.state.llm_post)
+        except ValueError as exc:
+            self._json(400, {"error": str(exc)})
+            return
+        result = files.validate_glossary_text(merged)
+        if result["problems"]:
+            self._json(502, {"error": "model produced invalid TSV: "
+                             + "; ".join(result["problems"])})
+            return
+        self._json(200, {"text": merged, "added": added, "skipped": skipped,
+                         "terms": result["terms"], "keyterms": result["keyterms"]})
 
     def _post_start(self):
         if self.state.pipeline.running():

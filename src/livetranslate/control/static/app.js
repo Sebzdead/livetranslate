@@ -37,6 +37,8 @@ async function refreshState() {
   $("launch-info").textContent = st.running ? "pid " + st.pid : "";
   $("lan-ip").textContent = st.lan_ip;
 
+  setGlossaryTargets(st.links.languages.map((l) => l.lang));
+
   const rows = [["Operator console", st.links.operator]].concat(
     st.links.languages.map((l) => [l.name + " (" + l.lang + ")", l.url]));
   $("links").innerHTML = rows.map(([name, url]) =>
@@ -171,18 +173,108 @@ async function saveConfigRaw() {
 }
 
 /* ---------- glossary ---------- */
+const GLOSSARY_COLS = ["term_src", "es", "fr", "de", "pt", "ar", "zh",
+                       "priority", "notes"];
+let glossaryRows = [];                      // [{col: value}] — single source of truth
+let glossaryTargets = [];                   // lang codes shown as columns
+
+const escAttr = (s) => esc(s).replace(/"/g, "&quot;");
+
+function parseGlossary(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (!lines.length) return [];
+  const header = lines[0].replace(/^﻿/, "").split("\t");
+  return lines.slice(1).map((line) => {
+    const cells = line.split("\t");
+    const row = {};
+    GLOSSARY_COLS.forEach((c) => {
+      const i = header.indexOf(c);
+      row[c] = i >= 0 && i < cells.length ? cells[i] : "";
+    });
+    return row;
+  });
+}
+
+function serializeGlossary() {
+  return [GLOSSARY_COLS.join("\t")]
+    .concat(glossaryRows.map((r) => GLOSSARY_COLS.map((c) => r[c] || "").join("\t")))
+    .join("\n") + "\n";
+}
+
+function renderGlossary() {
+  const cols = ["term_src"].concat(glossaryTargets, ["priority", "notes"]);
+  const cls = (c) => c === "priority" ? ' class="num"' : "";
+  const head = "<tr>" + cols.map((c) =>
+    `<th${cls(c)}>${c === "term_src" ? "term (source)" : c}</th>`).join("")
+    + '<th class="del"></th></tr>';
+  const body = glossaryRows.map((row, i) => "<tr>" + cols.map((c) =>
+    `<td${cls(c)}><input data-row="${i}" data-col="${c}"
+        value="${escAttr(row[c] || "")}"
+        ${c === "term_src" ? 'placeholder="…"' : ""}></td>`).join("")
+    + `<td class="del"><button class="delbtn" data-del="${i}"
+         title="delete row">✗</button></td></tr>`).join("");
+  $("glossary-table").innerHTML = head + body;
+  document.querySelectorAll("#glossary-table input").forEach((inp) =>
+    inp.addEventListener("input", () => {
+      glossaryRows[+inp.dataset.row][inp.dataset.col] = inp.value;
+    }));
+  document.querySelectorAll("#glossary-table .delbtn").forEach((b) =>
+    b.addEventListener("click", () => {
+      glossaryRows.splice(+b.dataset.del, 1);
+      renderGlossary();
+    }));
+  $("glossary").value = serializeGlossary();
+}
+
+function setGlossaryTargets(langs) {
+  if (JSON.stringify(langs) === JSON.stringify(glossaryTargets)) return;
+  glossaryTargets = langs;
+  renderGlossary();                          // column set changed
+}
+
 async function refreshGlossary() {
   const body = await api("/api/glossary");
-  $("glossary").value = body.text;
+  glossaryRows = parseGlossary(body.text);
+  renderGlossary();
 }
 
 async function saveGlossary() {
   try {
-    const r = await api("/api/glossary", { text: $("glossary").value });
+    const r = await api("/api/glossary", { text: serializeGlossary() });
     $("glossary-counts").textContent =
       r.terms + " terms; " + r.keyterms + " keyterms sent to ASR (cap 50)";
     setMsg("glossary-msg", "Saved.", true);
   } catch (e) { setMsg("glossary-msg", e.message, false); }
+}
+
+function fileToB64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1]);
+    r.onerror = () => reject(new Error("could not read file"));
+    r.readAsDataURL(file);
+  });
+}
+
+async function generateGlossary() {
+  const f = $("notes-file").files[0];
+  if (!f) { setMsg("glossary-msg", "choose a notes file first (.pdf or .txt)", false); return; }
+  const btn = $("btn-generate");
+  btn.disabled = true;
+  const msg = $("glossary-msg");
+  msg.className = "msg";
+  msg.textContent = "consulting DeepSeek — this can take a minute…";
+  try {
+    const content_b64 = await fileToB64(f);
+    const r = await api("/api/glossary/generate",
+                        { filename: f.name, content_b64 });
+    glossaryRows = parseGlossary(r.text);
+    renderGlossary();
+    $("glossary-counts").textContent = "+" + r.added + " drafted, " + r.skipped
+      + " already present — unsaved; review and save";
+    setMsg("glossary-msg", "Drafted " + r.added + " terms from " + f.name + ".", true);
+  } catch (e) { setMsg("glossary-msg", e.message, false); }
+  btn.disabled = false;
 }
 
 /* ---------- keys ---------- */
@@ -221,6 +313,21 @@ $("btn-meter").addEventListener("click", toggleMeter);
 $("btn-save-cfg").addEventListener("click", saveConfigFields);
 $("btn-save-raw").addEventListener("click", saveConfigRaw);
 $("btn-save-glossary").addEventListener("click", saveGlossary);
+$("btn-generate").addEventListener("click", generateGlossary);
+$("btn-add-term").addEventListener("click", () => {
+  const row = {};
+  GLOSSARY_COLS.forEach((c) => { row[c] = ""; });
+  row.priority = "2";
+  glossaryRows.push(row);
+  renderGlossary();
+  const inputs = document.querySelectorAll('#glossary-table input[data-col="term_src"]');
+  if (inputs.length) inputs[inputs.length - 1].focus();
+});
+$("btn-raw-apply").addEventListener("click", () => {
+  glossaryRows = parseGlossary($("glossary").value);
+  renderGlossary();
+  setMsg("glossary-msg", "Raw TSV loaded into table (unsaved).", true);
+});
 $("btn-save-keys").addEventListener("click", saveKeys);
 
 (async function init() {
