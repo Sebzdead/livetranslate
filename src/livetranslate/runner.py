@@ -43,6 +43,15 @@ def _make_translator(cfg):
     return LLMTranslator(cfg["translate"])
 
 
+def _shutdown_signals():
+    """SIGINT everywhere; SIGBREAK too on Windows (CTRL_BREAK_EVENT from the
+    control panel arrives as SIGBREAK)."""
+    sigs = [signal.SIGINT]
+    if hasattr(signal, "SIGBREAK"):
+        sigs.append(signal.SIGBREAK)
+    return sigs
+
+
 def run_live(cfg, resume_dir=None) -> int:
     glossary = Glossary.load(cfg["glossary"]["path"], cfg["glossary"]["domain_blurb"])
     log.info("glossary: %d terms (hash %s); keyterms sent: %d",
@@ -72,14 +81,16 @@ def run_live(cfg, resume_dir=None) -> int:
     stop = threading.Event()
 
     def _sigint(_sig, _frm):
-        log.info("SIGINT: draining and shutting down...")
+        log.info("shutdown signal: draining and shutting down...")
         stop.set()
 
-    try:
-        prev_handler = signal.signal(signal.SIGINT, _sigint)
-    except ValueError:
-        # signal.signal only works from the main thread; ignore if called off-main-thread
-        prev_handler = None
+    prev_handlers = {}
+    for sig in _shutdown_signals():
+        try:
+            prev_handlers[sig] = signal.signal(sig, _sigint)
+        except ValueError:
+            # signal.signal only works from the main thread; ignore otherwise
+            pass
 
     pipe.start()
     watchdog.start()
@@ -93,9 +104,9 @@ def run_live(cfg, resume_dir=None) -> int:
         # spec §5.8 order: stop source (loop exited) -> flush ASR -> drain xlate -> close store
         watchdog.stop()
         pipe.shutdown()
-        if prev_handler is not None:
+        for sig, handler in prev_handlers.items():
             try:
-                signal.signal(signal.SIGINT, prev_handler)
+                signal.signal(sig, handler)
             except ValueError:
                 pass
 

@@ -36,3 +36,17 @@ def test_run_live_smoke(tmp_path, monkeypatch):
     assert sdirs, "session dir created"
     sentences = [json.loads(l) for l in (sdirs[0] / "sentences.jsonl").read_text().splitlines()]
     assert sentences and sentences[0]["text"] == "Hello live."
+
+
+def test_run_live_registers_sigbreak_when_available(monkeypatch):
+    """On Windows, CTRL_BREAK arrives as SIGBREAK; run_live must register it
+    alongside SIGINT so the control panel can stop the pipeline gracefully."""
+    import signal as signal_mod
+    from livetranslate import runner
+
+    if not hasattr(signal_mod, "SIGBREAK"):
+        monkeypatch.setattr(signal_mod, "SIGBREAK", 21, raising=False)
+
+    sigs = runner._shutdown_signals()
+    assert signal_mod.SIGINT in sigs
+    assert getattr(signal_mod, "SIGBREAK") in sigs
