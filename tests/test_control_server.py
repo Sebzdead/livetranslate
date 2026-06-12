@@ -71,7 +71,7 @@ def get(base, path):
 
 
 def post(base, path, payload=None):
-    data = json.dumps(payload or {}).encode()
+    data = json.dumps({} if payload is None else payload).encode()
     req = urllib.request.Request(base + path, data=data,
                                  headers={"Content-Type": "application/json"})
     try:
@@ -164,3 +164,19 @@ def test_server_start_refuses_without_required_keys(srv):
     status, body = post(base, "/api/server/start")
     assert status == 400
     assert "ELEVENLABS_API_KEY" in body["error"]
+
+
+def test_post_with_non_dict_body_is_400(srv):
+    base, _ = srv
+    status, body = post(base, "/api/keys", [])
+    assert status == 400
+
+
+def test_meter_start_blocked_while_pipeline_runs(srv, fake_sounddevice):
+    base, state = srv
+    status, _ = post(base, "/api/server/start")
+    assert status == 200
+    status, body = post(base, "/api/meter", {"device_index": 0})
+    assert status == 409
+    status, _ = post(base, "/api/server/stop")
+    assert status == 200

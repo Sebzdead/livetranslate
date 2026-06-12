@@ -40,13 +40,26 @@ class ControlState:
     def glossary_path(self) -> Path:
         return self.root / str(self.config_doc()["glossary"]["path"])
 
-    def start_meter(self, device_index: int) -> None:
+    def launch_pipeline(self, extra_env: dict) -> None:
+        """Stop the meter and start the pipeline atomically: a concurrent
+        /api/meter POST cannot re-open the device in between."""
         with self.meter_lock:
+            if self.meter is not None:
+                self.meter.stop()
+                self.meter = None
+            self.pipeline.start(extra_env=extra_env)
+
+    def start_meter_if_idle(self, device_index: int):
+        """Start the meter unless the pipeline is running. Returns error str or None."""
+        with self.meter_lock:
+            if self.pipeline.running():
+                return "pipeline running; meter unavailable"
             if self.meter is not None:
                 self.meter.stop()
             meter = LevelMeter(device_index)
             meter.start()
             self.meter = meter
+            return None
 
     def stop_meter(self) -> None:
         with self.meter_lock:
@@ -130,7 +143,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         payload = self._body()
-        if payload is None:
+        if payload is None or not isinstance(payload, dict):
             self._json(400, {"error": "invalid JSON body"})
             return
         try:
@@ -143,10 +156,10 @@ class _Handler(BaseHTTPRequestHandler):
                 files.write_env_keys(self.state.env_path, updates)
                 self._json(200, {"ok": True})
             elif parsed.path == "/api/meter":
-                if self.state.pipeline.running():
-                    self._json(409, {"error": "pipeline running; meter unavailable"})
+                err = self.state.start_meter_if_idle(int(payload["device_index"]))
+                if err:
+                    self._json(409, {"error": err})
                 else:
-                    self.state.start_meter(int(payload["device_index"]))
                     self._json(200, {"ok": True})
             elif parsed.path == "/api/meter/stop":
                 self.state.stop_meter()
@@ -215,8 +228,11 @@ class _Handler(BaseHTTPRequestHandler):
         if missing:
             self._json(400, {"error": "missing API keys: " + ", ".join(missing)})
             return
-        self.state.stop_meter()       # never hold the device open under the pipeline
-        self.state.pipeline.start(extra_env=env)
+        try:
+            self.state.launch_pipeline(env)   # atomically stops meter + starts pipeline
+        except RuntimeError as exc:
+            self._json(409, {"error": str(exc)})
+            return
         self._json(200, {"ok": True})
 
 
