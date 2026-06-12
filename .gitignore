@@ -5,3 +5,9 @@ recordings/
 sessions/
 .DS_Store
 .env
+
+# Tool/IDE directories
+.claude/
+
+# Test files
+*.rtf
