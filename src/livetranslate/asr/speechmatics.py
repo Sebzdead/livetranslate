@@ -101,3 +101,105 @@ class SpeechmaticsRTAdapter:
             return None
         text = " ".join(r.get("content", "") for r in msg.get("results", [])).strip()
         return to_app(msg.get("language", "")), text
+
+    # -- lifecycle ----------------------------------------------------------
+    def start(self, on_event: OnEvent, on_status: OnStatus, on_draft=None) -> None:
+        self.on_event, self.on_status, self.on_draft = on_event, on_status, on_draft
+        self._stop.clear()
+        self._started.clear()
+        self._seq = 0
+        self._connect()
+        self._sender = threading.Thread(target=self._send_loop, name="asr-sender",
+                                        daemon=False)
+        self._receiver = threading.Thread(target=self._recv_loop, name="asr-receiver",
+                                          daemon=False)
+        self._sender.start()
+        self._receiver.start()
+
+    def _connect(self) -> None:
+        self._ws = websocket.create_connection(
+            WS_URL, header=[f"Authorization: Bearer {self.api_key}"], timeout=10)
+        # StartRecognition first; "connected" is emitted on RecognitionStarted.
+        self._ws.send(json.dumps(self._start_recognition()))
+
+    # -- audio path ---------------------------------------------------------
+    def send_audio(self, chunk: AudioChunk) -> None:
+        self._send_q.put(chunk)   # blocks if full: backpressure to source
+
+    def _send_loop(self) -> None:
+        # Audio must not be sent before RecognitionStarted, or the server errors.
+        if not self._started.wait(timeout=15):
+            self.on_status(status("error", "asr", "RecognitionStarted not received"))
+            return
+        while not self._stop.is_set():
+            chunk = self._send_q.get()
+            if chunk is None:
+                self._send_end_of_stream()
+                return
+            try:
+                self._ws.send_binary(chunk.pcm16)
+                self._seq += 1
+            except Exception as e:   # noqa: BLE001 — surfaced as status
+                self.on_status(status("error", "asr", f"send failed: {e}"))
+                return
+
+    def _send_end_of_stream(self) -> None:
+        try:
+            self._ws.send(json.dumps({"message": "EndOfStream",
+                                      "last_seq_no": self._seq}))
+        except Exception:   # noqa: BLE001 — already closing
+            pass
+
+    # -- receive path -------------------------------------------------------
+    def _recv_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                raw = self._ws.recv()
+            except Exception as e:   # noqa: BLE001
+                if not self._stop.is_set():
+                    self.on_status(status("error", "asr", f"recv failed: {e}"))
+                return
+            if not raw:
+                continue
+            try:
+                msg = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            m = msg.get("message")
+            if m == "RecognitionStarted":
+                self._started.set()
+                self.on_status(status("info", "asr", "connected"))
+                continue
+            if m == "EndOfTranscript":
+                return
+            if m == "Error":
+                self.on_status(status("error", "asr",
+                                      f"vendor error {msg.get('type')}: {msg.get('reason', '')}"))
+                return
+            if m == "Warning":
+                self.on_status(status("warn", "asr",
+                                      f"{msg.get('type')}: {msg.get('reason', '')}"))
+                continue
+            if m in ("Info", "AudioAdded"):
+                continue
+            ev = self._normalize(msg)
+            if ev is not None:
+                self.on_event(ev)
+                continue
+            draft = self._draft(msg)
+            if draft is not None and self.on_draft is not None:
+                lang, text = draft
+                if text:
+                    self.on_draft(lang, text)
+
+    def flush_and_stop(self, timeout_s: float = 8.0) -> None:
+        self._send_q.put(None)
+        self._sender.join(timeout=timeout_s)
+        self._stop.set()
+        # Close the WS BEFORE joining the receiver so its blocking recv()
+        # unblocks immediately instead of burning the join timeout.
+        try:
+            self._ws.close()
+        except Exception:   # noqa: BLE001 — already closing
+            pass
+        self._receiver.join(timeout=timeout_s)

@@ -66,3 +66,106 @@ def test_additional_vocab_truncated_to_cap():
     a = make_adapter(additional_vocab=[f"t{i}" for i in range(60)],
                      additional_vocab_max=50)
     assert len(a.additional_vocab) == 50
+
+
+def test_recv_loop_routes_recognition_started_and_transcripts():
+    a = make_adapter()
+    events, statuses = [], []
+    a.on_event = events.append
+    a.on_status = statuses.append
+    a.on_draft = None
+
+    class ScriptWS:
+        def __init__(self, msgs):
+            self._msgs = list(msgs)
+        def recv(self):
+            if self._msgs:
+                return json.dumps(self._msgs.pop(0))
+            raise ConnectionError("done")
+
+    a._ws = ScriptWS([FIXTURES["recognition_started"], FIXTURES["audio_added"],
+                      FIXTURES["partial"], FIXTURES["final"],
+                      FIXTURES["end_of_transcript"]])
+    a._recv_loop()
+    assert a._started.is_set()
+    assert [e.kind for e in events] == ["partial", "final"]
+    assert any("connected" in s.message for s in statuses)
+
+
+def test_recv_loop_error_surfaces_as_error_status():
+    a = make_adapter()
+    statuses = []
+    a.on_event = lambda e: None
+    a.on_status = statuses.append
+    a.on_draft = None
+
+    class OneShot:
+        def __init__(self, msg):
+            self.msg, self.done = msg, False
+        def recv(self):
+            if self.done:
+                raise ConnectionError("done")
+            self.done = True
+            return json.dumps(self.msg)
+
+    a._ws = OneShot(FIXTURES["error"])
+    a._recv_loop()
+    assert any(s.level == "error" and "invalid_audio_type" in s.message for s in statuses)
+
+
+def test_recv_loop_emits_draft_when_callback_present():
+    a = make_adapter(target_languages=["es"])
+    drafts = []
+    a.on_event = lambda e: None
+    a.on_status = lambda s: None
+    a.on_draft = lambda lang, text: drafts.append((lang, text))
+
+    class OneShot:
+        def __init__(self, msg):
+            self.msg, self.done = msg, False
+        def recv(self):
+            if self.done:
+                raise ConnectionError("done")
+            self.done = True
+            return json.dumps(self.msg)
+
+    a._ws = OneShot(FIXTURES["translation"])
+    a._recv_loop()
+    assert drafts == [("es", "El primer movimiento es lo que pone todo en marcha.")]
+
+
+def test_recv_loop_maps_cmn_draft_to_zh():
+    a = make_adapter(target_languages=["zh"])
+    drafts = []
+    a.on_event = lambda e: None
+    a.on_status = lambda s: None
+    a.on_draft = lambda lang, text: drafts.append((lang, text))
+
+    class OneShot:
+        def __init__(self, msg):
+            self.msg, self.done = msg, False
+        def recv(self):
+            if self.done:
+                raise ConnectionError("done")
+            self.done = True
+            return json.dumps(self.msg)
+
+    a._ws = OneShot(FIXTURES["translation_cmn"])
+    a._recv_loop()
+    assert drafts and drafts[0][0] == "zh"
+
+
+def test_end_of_stream_carries_last_seq_no():
+    a = make_adapter()
+    sent = []
+
+    class CaptureWS:
+        def send(self, data):
+            sent.append(json.loads(data))
+        def send_binary(self, data):
+            pass
+
+    a._ws = CaptureWS()
+    a._seq = 7
+    a._send_end_of_stream()
+    assert sent == [{"message": "EndOfStream", "last_seq_no": 7}]
