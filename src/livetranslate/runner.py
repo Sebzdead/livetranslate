@@ -32,6 +32,21 @@ def _adapter_factory(cfg, name, glossary):
                 keyterms=glossary.keyterms(cap=100),
                 prompt=glossary.domain_blurb if cfg["asr"]["assemblyai"]["use_domain_prompt"] else "")
         return make
+    if name == "speechmatics":
+        from .asr.speechmatics import SpeechmaticsRTAdapter
+        sm = cfg["asr"]["speechmatics"]
+        # Phase 2 turns this on; phase 1 keeps targets empty (transcription only).
+        targets = (cfg["translate"]["targets"]
+                   if cfg.get("display", {}).get("draft_translation") else [])
+        def make():
+            return SpeechmaticsRTAdapter(
+                api_key=os.environ["SPEECHMATICS_API_KEY"],
+                language=cfg["session"]["source_language"],
+                additional_vocab=glossary.keyterms(cap=sm["additional_vocab_max"]),
+                target_languages=targets,
+                additional_vocab_max=sm["additional_vocab_max"],
+                max_delay=sm["max_delay"])
+        return make
     raise SystemExit(f"unknown ASR adapter: {name!r}")
 
 
