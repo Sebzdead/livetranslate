@@ -145,3 +145,27 @@ def test_snapshot_src_has_no_draft_frame():
     st = DisplayState(langs=["es"])
     st.set_draft("es", "x")
     assert all(i["type"] != "draft" for i in st.snapshot_lang("src", after_sid=-1))
+
+
+def test_sse_draft_frame_delivered_without_keyerror(server):
+    """Regression: draft frames have no 'sid' key; the SSE handler must not raise
+    KeyError when iterating snapshot_lang output that includes a draft item."""
+    srv, st = server
+    # Add a confirmed translation so snapshot_lang returns a real item first.
+    s0 = Sentence(0, "Hello.", 0, 900, 1.0)
+    st.add_sentence(s0)
+    st.add_translation(Translation(0, "es", "Hola.", "ok", 1.5, "m", 1))
+    # Set a live draft — this produces a {"type":"draft",...} frame with NO "sid" key.
+    st.set_draft("es", "Hola en vivo…")
+    # Open the audience SSE stream.
+    resp = urllib.request.urlopen(url(srv, "/events?lang=es"))
+    # Read a few frames; with the bug present this raises KeyError inside the handler
+    # thread and the response silently breaks (no draft frame arrives).
+    events = read_sse_events(resp, 5, timeout=5)
+    # The confirmed translation must arrive.
+    assert any(e.get("type") == "translation" and e.get("text") == "Hola."
+               for e in events), f"translation frame missing in: {events}"
+    # The draft frame must also arrive — this is the critical assertion that fails
+    # against the old code (KeyError prevents the draft from being emitted).
+    assert any(e.get("type") == "draft" and e.get("text") == "Hola en vivo…"
+               for e in events), f"draft frame missing in: {events}"

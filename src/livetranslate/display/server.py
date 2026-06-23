@@ -172,8 +172,13 @@ class _Handler(BaseHTTPRequestHandler):
                     self._sse_send(None, {"type": "status", "lag": self.state.lag_by_lang()})
                 else:
                     for item in self.state.snapshot_lang(lang, after_sid):
-                        self._sse_send(item["sid"], item)
-                        after_sid = max(after_sid, item["sid"])
+                        if item["type"] == "draft":
+                            # Live ephemeral value: send without an event id so it
+                            # never advances the Last-Event-ID resume cursor.
+                            self._sse_send(None, item)
+                        else:
+                            self._sse_send(item["sid"], item)
+                            after_sid = max(after_sid, item["sid"])
                     # Send tail activity indicator on ALL non-status streams (src + audience)
                     self._sse_send(None, {"type": "tail", "text": self.state.tentative_tail})
                 new_version = self.state.wait_for_change(version)
