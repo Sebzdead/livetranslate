@@ -77,7 +77,11 @@ es.onmessage = (m) => {
     if (wasAtBottom) scrollTo(0, document.body.scrollHeight); else maybeFollow();
   } else if (ev.type === "draft") {
     const wasAtBottom = atBottom();
-    if (!ev.text) { removeDraft(); return; }
+    if (!ev.text) {
+      removeDraft();
+      if (wasAtBottom) scrollTo(0, document.body.scrollHeight);
+      return;
+    }
     if (!draftEl) {
       draftEl = document.createElement("p");
       draftEl.className = "s draft";
