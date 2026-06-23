@@ -187,10 +187,19 @@ class SpeechmaticsRTAdapter:
                 self.on_event(ev)
                 continue
             draft = self._draft(msg)
-            if draft is not None and self.on_draft is not None:
-                lang, text = draft
-                if text:
-                    self.on_draft(lang, text)
+            if draft is not None:
+                # Translation message: emit only if drafts are enabled, but always
+                # consume it (do not fall through to the unknown-message warning).
+                if self.on_draft is not None:
+                    lang, text = draft
+                    if text:
+                        self.on_draft(lang, text)
+                continue
+            # Never swallow unrecognized vendor messages silently — a wrong schema
+            # manifests as a storm of these. Warn (not error: a per-message issue
+            # must not trigger a reconnect loop). Mirrors the ElevenLabs adapter.
+            self.on_status(status("warn", "asr",
+                                  f"vendor message: {json.dumps(msg)[:200]}"))
 
     def flush_and_stop(self, timeout_s: float = 8.0) -> None:
         self._send_q.put(None)

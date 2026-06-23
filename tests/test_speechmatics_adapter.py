@@ -169,3 +169,48 @@ def test_end_of_stream_carries_last_seq_no():
     a._seq = 7
     a._send_end_of_stream()
     assert sent == [{"message": "EndOfStream", "last_seq_no": 7}]
+
+
+def test_recv_loop_warns_on_unknown_message():
+    a = make_adapter()
+    statuses = []
+    a.on_event = lambda e: None
+    a.on_status = statuses.append
+    a.on_draft = None
+
+    class OneShot:
+        def __init__(self, msg):
+            self.msg, self.done = msg, False
+        def recv(self):
+            if self.done:
+                raise ConnectionError("done")
+            self.done = True
+            return json.dumps(self.msg)
+
+    a._ws = OneShot({"message": "SomeFutureMessage", "detail": "x"})
+    a._recv_loop()
+    warns = [s for s in statuses if s.level == "warn"]
+    assert any("SomeFutureMessage" in s.message for s in warns)
+
+
+def test_recv_loop_does_not_warn_on_translation_when_drafts_disabled():
+    # A translation message with on_draft=None must be silently consumed,
+    # NOT treated as an unknown message.
+    a = make_adapter()
+    statuses = []
+    a.on_event = lambda e: None
+    a.on_status = statuses.append
+    a.on_draft = None
+
+    class OneShot:
+        def __init__(self, msg):
+            self.msg, self.done = msg, False
+        def recv(self):
+            if self.done:
+                raise ConnectionError("done")
+            self.done = True
+            return json.dumps(self.msg)
+
+    a._ws = OneShot(FIXTURES["translation"])
+    a._recv_loop()
+    assert not [s for s in statuses if s.level == "warn"]
