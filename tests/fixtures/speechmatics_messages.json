@@ -1,0 +1,51 @@
+{
+  "recognition_started": {
+    "message": "RecognitionStarted",
+    "id": "807670e9-14af-4fa2-9e8f-5d525c22156e"
+  },
+  "audio_added": { "message": "AudioAdded", "seq_no": 1 },
+  "partial": {
+    "message": "AddPartialTranscript",
+    "format": "2.9",
+    "metadata": { "start_time": 1.24, "end_time": 2.10, "transcript": "the first move is what sets" },
+    "results": [
+      { "type": "word", "start_time": 1.24, "end_time": 1.38, "alternatives": [{ "content": "the", "confidence": 0.91 }] },
+      { "type": "word", "start_time": 1.38, "end_time": 1.62, "alternatives": [{ "content": "first", "confidence": 0.95 }] }
+    ]
+  },
+  "final": {
+    "message": "AddTranscript",
+    "format": "2.9",
+    "metadata": { "start_time": 1.24, "end_time": 3.55, "transcript": "The first move is what sets everything in motion. " },
+    "results": [
+      { "type": "word", "start_time": 1.24, "end_time": 1.38, "alternatives": [{ "content": "The", "confidence": 0.98 }] },
+      { "type": "word", "start_time": 3.30, "end_time": 3.55, "alternatives": [{ "content": "motion", "confidence": 0.97 }] },
+      { "type": "punctuation", "attaches_to": "previous", "start_time": 3.55, "end_time": 3.55, "alternatives": [{ "content": ".", "confidence": 1.0 }] }
+    ]
+  },
+  "partial_translation": {
+    "message": "AddPartialTranslation",
+    "format": "2.9",
+    "language": "es",
+    "results": [
+      { "start_time": 1.24, "end_time": 2.10, "content": "el primer movimiento es lo que" }
+    ]
+  },
+  "translation": {
+    "message": "AddTranslation",
+    "format": "2.9",
+    "language": "es",
+    "results": [
+      { "start_time": 1.24, "end_time": 3.55, "content": "El primer movimiento es lo que pone todo en marcha." }
+    ]
+  },
+  "translation_cmn": {
+    "message": "AddTranslation",
+    "format": "2.9",
+    "language": "cmn",
+    "results": [{ "start_time": 1.24, "end_time": 3.55, "content": "第一步决定了一切。" }]
+  },
+  "end_of_transcript": { "message": "EndOfTranscript" },
+  "warning": { "message": "Warning", "type": "duration_limit_exceeded", "reason": "Audio duration limit exceeded" },
+  "error": { "message": "Error", "type": "invalid_audio_type", "reason": "Audio type not supported" }
+}
