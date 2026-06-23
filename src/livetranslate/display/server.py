@@ -21,6 +21,7 @@ class DisplayState:
         self.sentences = []
         self.translations = {l: {} for l in langs}
         self.tentative_tail = ""
+        self.drafts = {l: "" for l in langs}   # live draft translation per lang
         self.statuses = []
         self.status_seq = 0   # monotonically increasing; incremented by add_status
         self.version = 0
@@ -43,6 +44,12 @@ class DisplayState:
         with self._cond:
             self.tentative_tail = tail
             self._bump()
+
+    def set_draft(self, lang: str, text: str):
+        with self._cond:
+            if lang in self.drafts:
+                self.drafts[lang] = text
+                self._bump()
 
     def add_status(self, e: StatusEvent):
         with self._cond:
@@ -88,6 +95,9 @@ class DisplayState:
                         items.append({"type": "translation", "sid": sid, "lang": lang,
                                       "text": t.text, "status": t.status,
                                       "paragraph_break": pb})
+                draft = self.drafts.get(lang, "")
+                if draft:
+                    items.append({"type": "draft", "lang": lang, "text": draft})
             return items
 
     def lag_by_lang(self):

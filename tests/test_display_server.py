@@ -119,3 +119,29 @@ def test_status_sse_streams_level_and_message(server):
     level_events = [e for e in events if e.get("type") == "status" and "level" in e]
     assert any(e["level"] == "error" and "reconnecting" in e["message"]
                for e in level_events), f"no matching level event in: {events}"
+
+
+def test_display_state_set_draft_bumps_version_and_stores_per_lang():
+    from livetranslate.display.server import DisplayState
+    st = DisplayState(langs=["es", "fr"])
+    v0 = st.version
+    st.set_draft("es", "el primer movimiento")
+    assert st.version != v0
+    assert st.drafts["es"] == "el primer movimiento"
+    assert st.drafts["fr"] == ""
+
+
+def test_snapshot_lang_includes_current_draft_frame():
+    from livetranslate.display.server import DisplayState
+    st = DisplayState(langs=["es"])
+    st.set_draft("es", "borrador en vivo")
+    items = st.snapshot_lang("es", after_sid=-1)
+    drafts = [i for i in items if i["type"] == "draft"]
+    assert drafts == [{"type": "draft", "lang": "es", "text": "borrador en vivo"}]
+
+
+def test_snapshot_src_has_no_draft_frame():
+    from livetranslate.display.server import DisplayState
+    st = DisplayState(langs=["es"])
+    st.set_draft("es", "x")
+    assert all(i["type"] != "draft" for i in st.snapshot_lang("src", after_sid=-1))
