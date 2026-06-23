@@ -9,7 +9,8 @@ import tempfile
 import tomlkit
 from pathlib import Path
 
-SECRET_KEYS = ("ELEVENLABS_API_KEY", "ASSEMBLYAI_API_KEY", "TRANSLATE_API_KEY")
+SECRET_KEYS = ("ELEVENLABS_API_KEY", "ASSEMBLYAI_API_KEY",
+               "SPEECHMATICS_API_KEY", "TRANSLATE_API_KEY")
 
 # Regex patterns for parsing .env values
 _QUOTED = re.compile(r'^(["\'])(.*)\1\s*(?:#.*)?$')
@@ -125,8 +126,8 @@ def validate_config_text(text: str) -> list:
             problems.append(f"missing [{section}] section")
     if problems:
         return problems
-    if doc["asr"].get("adapter") not in ("elevenlabs", "assemblyai"):
-        problems.append("asr.adapter must be 'elevenlabs' or 'assemblyai'")
+    if doc["asr"].get("adapter") not in ("elevenlabs", "assemblyai", "speechmatics"):
+        problems.append("asr.adapter must be 'elevenlabs', 'assemblyai', or 'speechmatics'")
     if not list(doc["translate"].get("targets", [])):
         problems.append("translate.targets must list at least one language")
     port = doc["display"].get("port")

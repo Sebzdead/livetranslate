@@ -38,3 +38,16 @@ def test_no_secrets_in_config(tmp_path):
     p.write_bytes(MINIMAL + b'\n[asr.elevenlabs]\napi_key = "sk-123"\n')
     with pytest.raises(ValueError, match="secret"):
         load_config(p)
+
+def test_config_accepts_speechmatics_adapter(tmp_path):
+    from livetranslate.config import load_config
+    p = tmp_path / "config.toml"
+    p.write_text(
+        '[session]\nsource_language = "en"\n'
+        '[asr]\nadapter = "speechmatics"\nfailover = "elevenlabs"\n'
+        '[translate]\ntargets = ["es"]\nprovider = "openai_chat"\n'
+    )
+    cfg = load_config(p)
+    assert cfg["asr"]["adapter"] == "speechmatics"
+    assert cfg["asr"]["speechmatics"]["additional_vocab_max"] == 50
+    assert cfg["asr"]["speechmatics"]["max_delay"] == 1.0

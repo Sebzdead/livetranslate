@@ -21,7 +21,8 @@ log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
 
 # adapter name -> env var it requires (translate key is always required)
-ADAPTER_KEYS = {"elevenlabs": "ELEVENLABS_API_KEY", "assemblyai": "ASSEMBLYAI_API_KEY"}
+ADAPTER_KEYS = {"elevenlabs": "ELEVENLABS_API_KEY", "assemblyai": "ASSEMBLYAI_API_KEY",
+                "speechmatics": "SPEECHMATICS_API_KEY"}
 
 
 class ControlState:

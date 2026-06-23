@@ -13,6 +13,9 @@ DEFAULTS: dict = {
         "max_session_s": 0,  # 0 = off; set 5400 (90 min) for ElevenLabs; AAI hard limit 3 h
         "elevenlabs": {"keyterms_max": 50},  # realtime cap per docs/vendor-notes.md
         "assemblyai": {"use_domain_prompt": True},
+        # additional_vocab has a latency penalty for large lists (docs/vendor-notes.md);
+        # max_delay trades partial latency vs revision churn (lower = faster, choppier).
+        "speechmatics": {"additional_vocab_max": 50, "max_delay": 1.0},
     },
     "segmenter": {"max_words": 45, "max_pending_s": 12},
     "translate": {
