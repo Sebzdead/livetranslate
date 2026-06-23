@@ -13,7 +13,7 @@ class FakeAdapter:
         self.stopped = False
         self.sent_chunks: list[AudioChunk] = []
 
-    def start(self, on_event, on_status):
+    def start(self, on_event, on_status, on_draft=None):
         self.on_event, self.on_status = on_event, on_status
         self.started = True
 

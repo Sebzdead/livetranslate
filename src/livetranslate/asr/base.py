@@ -7,13 +7,15 @@ from ..types import AudioChunk, TranscriptEvent, StatusEvent
 
 OnEvent = Callable[[TranscriptEvent], None]
 OnStatus = Callable[[StatusEvent], None]
+OnDraft = Callable[[str, str], None]   # (app_lang, draft_text)
 
 @runtime_checkable
 class ASRAdapter(Protocol):
     """Spec §5.2. Adapters own their WS + sender/receiver threads and emit
     normalized TranscriptEvents mapped onto the session stream timeline."""
     name: str
-    def start(self, on_event: OnEvent, on_status: OnStatus) -> None: ...
+    def start(self, on_event: OnEvent, on_status: OnStatus,
+              on_draft: "OnDraft | None" = None) -> None: ...
     def send_audio(self, chunk: AudioChunk) -> None: ...
     def flush_and_stop(self, timeout_s: float = 8.0) -> None: ...
 
@@ -42,6 +44,7 @@ class ResilientASR:
         self.session_started_at: float = 0.0   # monotonic; set on every (re)connect
         self._lock = threading.RLock()
         self._adapter = None
+        self.on_draft = None
         # _reconnecting is a plain Event used for the "is reconnect in progress" check;
         # _spawn_lock guards the test-and-set so only one thread enters _reconnect.
         self._reconnecting = threading.Event()
@@ -53,8 +56,10 @@ class ResilientASR:
     def name(self):
         return self._adapter.name if self._adapter else "?"
 
-    def start(self, on_event: OnEvent, on_status: OnStatus) -> None:
+    def start(self, on_event: OnEvent, on_status: OnStatus,
+              on_draft=None) -> None:
         self.on_status = on_status
+        self.on_draft = on_draft
 
         def tracking_on_event(ev):
             if ev.kind == "final":
@@ -64,7 +69,7 @@ class ResilientASR:
         self.on_event = tracking_on_event
         with self._lock:
             self._adapter = self._factory()
-            self._adapter.start(self.on_event, self._on_adapter_status)
+            self._adapter.start(self.on_event, self._on_adapter_status, self.on_draft)
             self.session_started_at = time.monotonic()
 
     def session_age_s(self) -> float:
@@ -132,7 +137,7 @@ class ResilientASR:
                     self._adapter = factory()
                     if hasattr(self._adapter, "set_stream_offset"):
                         self._adapter.set_stream_offset(replay_from)
-                    self._adapter.start(self.on_event, self._on_adapter_status)
+                    self._adapter.start(self.on_event, self._on_adapter_status, self.on_draft)
                     # Replay from ring buffer with overlap.
                     self.on_status(status("info", "asr", f"replaying from {replay_from}ms"))
                     try:

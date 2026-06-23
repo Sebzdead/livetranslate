@@ -12,9 +12,9 @@ class DyingAdapter(FakeAdapter):
         super().__init__(scripted)
         self.die_on_send, self.sends, self.starts = die_on_send, 0, 0
 
-    def start(self, on_event, on_status):
+    def start(self, on_event, on_status, on_draft=None):
         self.starts += 1
-        super().start(on_event, on_status)
+        super().start(on_event, on_status, on_draft)
 
     def send_audio(self, chunk):
         self.sends += 1
@@ -176,3 +176,24 @@ def test_force_reconnect_is_idempotent_while_reconnecting():
     # exactly one reconnect cycle ran (adapter restarted once beyond initial)
     assert a.starts if hasattr(a, "starts") else True
     assert sum(1 for s in statuses if "reconnecting(1)" in s.message) <= 2
+
+
+def test_resilient_passes_on_draft_to_adapter():
+    """ResilientASR forwards on_draft to the wrapped adapter's start()."""
+    from livetranslate.asr.base import ResilientASR
+
+    captured = {}
+
+    class DraftAdapter:
+        name = "draft-fake"
+        def start(self, on_event, on_status, on_draft=None):
+            captured["on_draft"] = on_draft
+        def send_audio(self, chunk):
+            pass
+        def flush_and_stop(self, timeout_s=8.0):
+            pass
+
+    r = ResilientASR(lambda: DraftAdapter(), ring=None)
+    sink = lambda lang, text: None
+    r.start(on_event=lambda e: None, on_status=lambda e: None, on_draft=sink)
+    assert captured["on_draft"] is sink
