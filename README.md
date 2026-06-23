@@ -2,7 +2,7 @@
 
 ![LiveTranslate UI Preview](UI.png)
 
-Captures a conference speaker's audio, transcribes it in real time with ElevenLabs Scribe v2 Realtime (or AssemblyAI Universal-3 Pro as failover/bake-off adapter), segments the transcript into finalized sentences, translates each sentence into multiple target languages via an LLM API with a glossary-enforced terminology, and serves per-language reading displays to browsers on the local network. Attendees point their phones at a URL on the venue Wi-Fi and read the talk live in their own language.
+Captures a conference speaker's audio, transcribes it in real time with ElevenLabs Scribe v2 Realtime (or AssemblyAI Universal-3 Pro / Speechmatics as failover/bake-off adapters), segments the transcript into finalized sentences, translates each sentence into multiple target languages via an LLM API with a glossary-enforced terminology, and serves per-language reading displays to browsers on the local network. Attendees point their phones at a URL on the venue Wi-Fi and read the talk live in their own language.
 
 **Documentation**
 
@@ -10,7 +10,7 @@ Captures a conference speaker's audio, transcribes it in real time with ElevenLa
 |---|---|
 | This README | Install, configuration, operator control panel, live runs, test harness |
 | [`live-translation-pipeline-spec.md`](live-translation-pipeline-spec.md) | Full design specification — architecture, invariants, failure handling |
-| [`docs/vendor-notes.md`](docs/vendor-notes.md) | ElevenLabs / AssemblyAI API verification notes and open uncertainties |
+| [`docs/vendor-notes.md`](docs/vendor-notes.md) | ElevenLabs / AssemblyAI / Speechmatics API verification notes and open uncertainties |
 | [`docs/superpowers/plans/`](docs/superpowers/plans/) | Implementation plans (pipeline, operator control panel) |
 
 ---
@@ -39,15 +39,49 @@ Edit `config.toml` before each event. All secrets go in environment variables on
 |---|---|
 | `[session]` | `source_language` — pin to `"en"` or `"de"` per event; `output_dir` — session JSONL root |
 | `[audio]` | `device_substring` — substring of the audio interface name (app refuses to start if not matched); `chunk_ms` — feed size (default 100) |
-| `[asr]` | `adapter` — `"elevenlabs"` or `"assemblyai"`; `failover` — optional second adapter; `overlap_ms` — replay overlap on reconnect |
+| `[asr]` | `adapter` — `"elevenlabs"`, `"assemblyai"`, or `"speechmatics"`; `failover` — optional second adapter; `overlap_ms` — replay overlap on reconnect |
 | `[asr.elevenlabs]` | `keyterms_max = 50` — ElevenLabs realtime cap (surcharged at $0.05/hr extra; count logged at startup) |
 | `[asr.assemblyai]` | `use_domain_prompt` — pass `domain_blurb.txt` as a free-form transcription hint (u3-rt-pro only) |
+| `[asr.speechmatics]` | `additional_vocab_max = 50` — glossary terms injected as custom vocabulary (large lists incur a latency penalty; see `docs/vendor-notes.md`); `max_delay = 1.0` — seconds before partials are emitted (lower = faster but more revisions) |
+| `[display]` | `draft_translation = false` — when `true` (Speechmatics adapter only), shows an instant italic draft caption from Speechmatics' bundled realtime translation, replaced by the glossary-accurate LLM translation when it lands |
 | `[segmenter]` | `max_words = 45`, `max_pending_s = 12` — sentence finalization thresholds |
 | `[translate]` | `targets` — list of BCP-47 codes (default `["es","fr","de","pt"]`; add `"ar"`, `"zh"` to enable); `provider`, `base_url`, `model` — **must be set before translation works** (see below); `timeout_s`, `batch_threshold`, `batch_max` |
 | `[glossary]` | `path = "glossary.tsv"`, `domain_blurb = "domain_blurb.txt"` |
 | `[display]` | `host = "0.0.0.0"`, `port = 8080`, `font_scale = 1.6` |
 | `[health]` | `stall_s = 10` — seconds before the watchdog flags a stall |
 | `[harness]` | `rtf = 1.0` — playback rate for FileSource (do not raise above 1.0 without vendor confirmation) |
+
+### Speechmatics (ASR + draft translation)
+
+Speechmatics is a selectable ASR adapter alongside ElevenLabs and AssemblyAI. To use it:
+
+```toml
+[asr]
+adapter  = "speechmatics"
+failover = "elevenlabs"   # ResilientASR fails over automatically on disconnect
+```
+
+**API key** — add to the gitignored `.env` (or pass as an environment variable):
+
+```
+SPEECHMATICS_API_KEY=<your key>
+```
+
+**Endpoint** — the adapter connects to the EU realtime endpoint:
+`wss://eu.rt.speechmatics.com/v2/`
+
+**Custom vocabulary** — glossary terms are injected as Speechmatics `additional_vocab` entries (up to `additional_vocab_max = 50`). Large lists incur a latency and memory penalty; see `docs/vendor-notes.md` (Speechmatics section) for details. Terms beyond the cap are logged and dropped from ASR boosting (still enforced in translation via the glossary block).
+
+**Instant draft-translation layer** — Speechmatics' bundled realtime translation can surface a fast italic draft caption while the glossary-accurate LLM translation is in flight. Enable it:
+
+```toml
+[display]
+draft_translation = true   # Speechmatics adapter only; no effect with elevenlabs/assemblyai
+```
+
+When enabled, each audience display shows the Speechmatics translation immediately as an italic draft line; it is replaced (without flicker) by the final LLM translation once it arrives. Set `draft_translation = false` (the default) to suppress it and show only final translations.
+
+**Wire format note** — the Speechmatics message schema is schema-derived and must be live-validated against a real `SPEECHMATICS_API_KEY` before each event. See `docs/vendor-notes.md` (Speechmatics section) for the specific fields to confirm.
 
 ### Setting the translation provider
 
@@ -66,6 +100,7 @@ model     = "deepseek-v4-flash"
 |---|---|
 | `ELEVENLABS_API_KEY` | ElevenLabs adapter (live run + harness) |
 | `ASSEMBLYAI_API_KEY` | AssemblyAI adapter (harness bakeoff/chaos) |
+| `SPEECHMATICS_API_KEY` | Speechmatics adapter (live run + harness) |
 | `TRANSLATE_API_KEY` | LLM translator (all modes with translation enabled) |
 
 ### Glossary format
