@@ -46,6 +46,13 @@ class DisplayState:
             self._bump()
 
     def set_draft(self, lang: str, text: str):
+        """Set the live draft translation for a target language.
+
+        Ephemeral, like tentative_tail: it is the current Speechmatics realtime
+        translation of speech in progress, shown until the authoritative LLM
+        translation lands. Each call overwrites the previous draft; pass "" to
+        clear it. Unknown langs (e.g. "src") are ignored.
+        """
         with self._cond:
             if lang in self.drafts:
                 self.drafts[lang] = text
@@ -95,6 +102,8 @@ class DisplayState:
                         items.append({"type": "translation", "sid": sid, "lang": lang,
                                       "text": t.text, "status": t.status,
                                       "paragraph_break": pb})
+                # The draft is appended regardless of after_sid: it is an
+                # ephemeral current-activity indicator, not tied to any sentence.
                 draft = self.drafts.get(lang, "")
                 if draft:
                     items.append({"type": "draft", "lang": lang, "text": draft})

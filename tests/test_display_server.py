@@ -122,7 +122,6 @@ def test_status_sse_streams_level_and_message(server):
 
 
 def test_display_state_set_draft_bumps_version_and_stores_per_lang():
-    from livetranslate.display.server import DisplayState
     st = DisplayState(langs=["es", "fr"])
     v0 = st.version
     st.set_draft("es", "el primer movimiento")
@@ -132,7 +131,6 @@ def test_display_state_set_draft_bumps_version_and_stores_per_lang():
 
 
 def test_snapshot_lang_includes_current_draft_frame():
-    from livetranslate.display.server import DisplayState
     st = DisplayState(langs=["es"])
     st.set_draft("es", "borrador en vivo")
     items = st.snapshot_lang("es", after_sid=-1)
@@ -141,7 +139,6 @@ def test_snapshot_lang_includes_current_draft_frame():
 
 
 def test_snapshot_src_has_no_draft_frame():
-    from livetranslate.display.server import DisplayState
     st = DisplayState(langs=["es"])
     st.set_draft("es", "x")
     assert all(i["type"] != "draft" for i in st.snapshot_lang("src", after_sid=-1))
