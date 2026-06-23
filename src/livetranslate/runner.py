@@ -35,15 +35,19 @@ def _adapter_factory(cfg, name, glossary):
     if name == "speechmatics":
         from .asr.speechmatics import SpeechmaticsRTAdapter
         sm = cfg["asr"]["speechmatics"]
-        # Phase 2 turns this on; phase 1 keeps targets empty (transcription only).
-        targets = (cfg["translate"]["targets"]
-                   if cfg.get("display", {}).get("draft_translation") else [])
         def make():
+            # Draft translation (Phase 2) is opt-in via display.draft_translation;
+            # when off, send no target_languages so Speechmatics only transcribes.
+            # .get() keeps the factory usable with partial cfgs (e.g. unit tests).
+            targets = (cfg["translate"]["targets"]
+                       if cfg.get("display", {}).get("draft_translation") else [])
             return SpeechmaticsRTAdapter(
                 api_key=os.environ["SPEECHMATICS_API_KEY"],
                 language=cfg["session"]["source_language"],
                 additional_vocab=glossary.keyterms(cap=sm["additional_vocab_max"]),
                 target_languages=targets,
+                # Mirror the keyterms cap so the adapter's own guard never
+                # re-truncates a list the glossary already capped at this value.
                 additional_vocab_max=sm["additional_vocab_max"],
                 max_delay=sm["max_delay"])
         return make
