@@ -44,7 +44,7 @@ class ResilientASR:
         self.session_started_at: float = 0.0   # monotonic; set on every (re)connect
         self._lock = threading.RLock()
         self._adapter = None
-        self.on_draft = None
+        self.on_draft: "OnDraft | None" = None
         # _reconnecting is a plain Event used for the "is reconnect in progress" check;
         # _spawn_lock guards the test-and-set so only one thread enters _reconnect.
         self._reconnecting = threading.Event()
@@ -57,7 +57,7 @@ class ResilientASR:
         return self._adapter.name if self._adapter else "?"
 
     def start(self, on_event: OnEvent, on_status: OnStatus,
-              on_draft=None) -> None:
+              on_draft: "OnDraft | None" = None) -> None:
         self.on_status = on_status
         self.on_draft = on_draft
 
