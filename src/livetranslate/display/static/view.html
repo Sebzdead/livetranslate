@@ -13,6 +13,10 @@
   /* one sentence per line, like the operator console */
   p.s { margin: 0 0 .55em; }
   p.s.pbreak { margin-top: 1.6em; }
+  /* draft = Speechmatics realtime translation, shown until the LLM caption lands */
+  p.s.draft { font-style: italic; color: var(--dim);
+              animation: draftfade .4s ease-in; }
+  @keyframes draftfade { from { opacity: 0; } to { opacity: 1; } }
   #activity { position: fixed; bottom: .5rem; inset-inline-start: 1rem; color: var(--dim); }
   #toggle { position: fixed; top: .5rem; inset-inline-end: .5rem;
             background:none; border:1px solid var(--dim); color:var(--dim);
@@ -53,15 +57,34 @@ jumpBtn.onclick = () => { scrollTo(0, document.body.scrollHeight); jumpBtn.style
 addEventListener("scroll", () => { if (atBottom()) jumpBtn.style.display = "none"; });
 
 const es = new EventSource(`/events?lang=${lang}`);
+// The draft line is a single provisional <p> pinned at the bottom. Real
+// translations append ABOVE it as regular text; the draft updates in place as
+// new partials arrive, and is removed when empty. This yields "italic draft
+// that becomes regular text once the authoritative translation arrives".
+let draftEl = null;
+function removeDraft() {
+  if (draftEl) { draftEl.remove(); draftEl = null; }
+}
 es.onmessage = (m) => {
   const ev = JSON.parse(m.data);
   if (ev.type === "translation" || ev.type === "sentence") {
     const wasAtBottom = atBottom();
+    // Insert the finalized line before the draft so the draft stays at the edge.
     const p = document.createElement("p");
     p.className = "s" + (ev.paragraph_break && textEl.childElementCount ? " pbreak" : "");
     p.textContent = ev.text;
-    textEl.appendChild(p);
+    textEl.insertBefore(p, draftEl);   // draftEl null -> appends at end
     if (wasAtBottom) scrollTo(0, document.body.scrollHeight); else maybeFollow();
+  } else if (ev.type === "draft") {
+    const wasAtBottom = atBottom();
+    if (!ev.text) { removeDraft(); return; }
+    if (!draftEl) {
+      draftEl = document.createElement("p");
+      draftEl.className = "s draft";
+      textEl.appendChild(draftEl);
+    }
+    draftEl.textContent = ev.text;
+    if (wasAtBottom) scrollTo(0, document.body.scrollHeight);
   } else if (ev.type === "tail") {
     document.getElementById("activity").hidden = !ev.text;
   }
