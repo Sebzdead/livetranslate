@@ -3,6 +3,7 @@ import tomllib
 from pathlib import Path
 
 ALLOWED_LANGS = {"es", "fr", "de", "pt", "ar", "zh"}
+SPEECHMATICS_MAX_TARGETS = 5   # Speechmatics realtime translation_config cap
 
 DEFAULTS: dict = {
     "session": {"source_language": "en", "output_dir": "sessions"},
@@ -77,4 +78,15 @@ def load_config(path: str | Path) -> dict:
         raise ValueError(f"unknown translate target(s): {sorted(bad)}")
     if cfg["session"]["source_language"] not in ("en", "de"):
         raise ValueError("session.source_language must be 'en' or 'de'")
+    # Speechmatics realtime translation accepts at most 5 target languages; with
+    # draft_translation on, translate.targets are forwarded to its
+    # translation_config, so a longer list fails at runtime with invalid_config.
+    if (cfg["asr"]["adapter"] == "speechmatics"
+            and cfg["display"]["draft_translation"]
+            and len(cfg["translate"]["targets"]) > SPEECHMATICS_MAX_TARGETS):
+        raise ValueError(
+            f"Speechmatics draft translation supports at most "
+            f"{SPEECHMATICS_MAX_TARGETS} target languages, but translate.targets "
+            f"has {len(cfg['translate']['targets'])}; reduce the list or set "
+            "display.draft_translation = false")
     return cfg

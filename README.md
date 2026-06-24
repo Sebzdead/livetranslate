@@ -45,7 +45,7 @@ Edit `config.toml` before each event. All secrets go in environment variables on
 | `[asr.speechmatics]` | `additional_vocab_max = 50` — glossary terms injected as custom vocabulary (large lists incur a latency penalty; see `docs/vendor-notes.md`); `max_delay = 1.0` — seconds before partials are emitted (lower = faster but more revisions) |
 | `[display]` | `draft_translation = false` — when `true` (Speechmatics adapter only), shows an instant italic draft caption from Speechmatics' bundled realtime translation, replaced by the glossary-accurate LLM translation when it lands |
 | `[segmenter]` | `max_words = 45`, `max_pending_s = 12` — sentence finalization thresholds |
-| `[translate]` | `targets` — list of BCP-47 codes (default `["es","fr","de","pt"]`; add `"ar"`, `"zh"` to enable); `provider`, `base_url`, `model` — **must be set before translation works** (see below); `timeout_s`, `batch_threshold`, `batch_max` |
+| `[translate]` | `targets` — list of BCP-47 codes (default `["es","fr","de","pt"]`; add `"ar"`, `"zh"` to enable; **max 5 when Speechmatics `draft_translation` is on**); `provider`, `base_url`, `model` — **must be set before translation works** (see below); `timeout_s`, `batch_threshold`, `batch_max` |
 | `[glossary]` | `path = "glossary.tsv"`, `domain_blurb = "domain_blurb.txt"` |
 | `[display]` | `host = "0.0.0.0"`, `port = 8080`, `font_scale = 1.6` |
 | `[health]` | `stall_s = 10` — seconds before the watchdog flags a stall |
@@ -63,7 +63,7 @@ failover = "elevenlabs"   # ResilientASR fails over automatically on disconnect
 
 **API key** — add to the gitignored `.env` (or pass as an environment variable):
 
-```
+```dotenv
 SPEECHMATICS_API_KEY=<your key>
 ```
 
@@ -80,6 +80,8 @@ draft_translation = true   # Speechmatics adapter only; no effect with elevenlab
 ```
 
 When enabled, each audience display shows the Speechmatics translation immediately as an italic draft line; it is replaced (without flicker) by the final LLM translation once it arrives. Set `draft_translation = false` (the default) to suppress it and show only final translations.
+
+> **Target-language limit:** Speechmatics' realtime translation accepts at most **5** target languages. With `draft_translation = true` on the Speechmatics adapter, `translate.targets` is forwarded to its `translation_config`, so the list must have ≤ 5 entries — `load_config` rejects more. The LLM translator itself has no such limit, so all 6 supported targets are fine when `draft_translation = false` (or with another adapter).
 
 **Wire format note** — the Speechmatics message schema is schema-derived and must be live-validated against a real `SPEECHMATICS_API_KEY` before each event. See `docs/vendor-notes.md` (Speechmatics section) for the specific fields to confirm.
 
