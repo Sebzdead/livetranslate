@@ -55,7 +55,8 @@ class AssemblyAIStreamingAdapter:
 
     # -- lifecycle ----------------------------------------------------------
 
-    def start(self, on_event: OnEvent, on_status: OnStatus) -> None:
+    def start(self, on_event: OnEvent, on_status: OnStatus, on_draft=None) -> None:
+        # on_draft ignored: AssemblyAI has no realtime translation.
         self.on_event, self.on_status = on_event, on_status
         self._stop.clear()
         self._connect()

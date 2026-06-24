@@ -57,6 +57,7 @@ class Pipeline:
         self._seg_thread = threading.Thread(target=self._segment_loop, name="segmenter")
         self._stop = threading.Event()
         self._draining = False
+        self._draft_enabled = bool(cfg["display"].get("draft_translation"))
 
     def _make_worker(self, lang: str) -> TranslationWorker:
         return TranslationWorker(
@@ -86,9 +87,19 @@ class Pipeline:
         self.store.write_translation(t)
         self.state.add_translation(t)
 
+    def _on_draft(self, lang: str, text: str) -> None:
+        # Speechmatics realtime translation: a fast, glossary-unaware draft shown
+        # as a provisional italic line until the LLM translation for that region
+        # of speech lands. Disabled unless display.draft_translation is set.
+        # (The adapter also won't emit drafts when disabled; this guard is
+        # defence-in-depth for any future draft-capable adapter.)
+        if self._draft_enabled:
+            self.state.set_draft(lang, text)
+
     # -- lifecycle --------------------------------------------------------
     def start(self) -> None:
-        self.adapter.start(on_event=self._on_event, on_status=self._on_status)
+        self.adapter.start(on_event=self._on_event, on_status=self._on_status,
+                           on_draft=self._on_draft)
         for w in self.workers.values():
             w.start()
         self._seg_thread.start()

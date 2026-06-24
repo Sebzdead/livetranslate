@@ -32,6 +32,25 @@ def _adapter_factory(cfg, name, glossary):
                 keyterms=glossary.keyterms(cap=100),
                 prompt=glossary.domain_blurb if cfg["asr"]["assemblyai"]["use_domain_prompt"] else "")
         return make
+    if name == "speechmatics":
+        from .asr.speechmatics import SpeechmaticsRTAdapter
+        sm = cfg["asr"]["speechmatics"]
+        def make():
+            # Draft translation (Phase 2) is opt-in via display.draft_translation;
+            # when off, send no target_languages so Speechmatics only transcribes.
+            # .get() keeps the factory usable with partial cfgs (e.g. unit tests).
+            targets = (cfg["translate"]["targets"]
+                       if cfg.get("display", {}).get("draft_translation") else [])
+            return SpeechmaticsRTAdapter(
+                api_key=os.environ["SPEECHMATICS_API_KEY"],
+                language=cfg["session"]["source_language"],
+                additional_vocab=glossary.keyterms(cap=sm["additional_vocab_max"]),
+                target_languages=targets,
+                # Mirror the keyterms cap so the adapter's own guard never
+                # re-truncates a list the glossary already capped at this value.
+                additional_vocab_max=sm["additional_vocab_max"],
+                max_delay=sm["max_delay"])
+        return make
     raise SystemExit(f"unknown ASR adapter: {name!r}")
 
 
@@ -54,9 +73,10 @@ def _shutdown_signals():
 
 def run_live(cfg, resume_dir=None) -> int:
     glossary = Glossary.load(cfg["glossary"]["path"], cfg["glossary"]["domain_blurb"])
-    log.info("glossary: %d terms (hash %s); keyterms sent: %d",
-             len(glossary.terms), glossary.sha256[:8],
-             len(glossary.keyterms(cap=cfg["asr"]["elevenlabs"]["keyterms_max"])))
+    # Each adapter logs its own keyterm/vocab count in __init__; keep this line
+    # adapter-agnostic so it never assumes a specific [asr.<adapter>] sub-block.
+    log.info("glossary: %d terms (hash %s)",
+             len(glossary.terms), glossary.sha256[:8])
 
     primary = _adapter_factory(cfg, cfg["asr"]["adapter"], glossary)
     failover = (_adapter_factory(cfg, cfg["asr"]["failover"], glossary)

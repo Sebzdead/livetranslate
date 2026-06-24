@@ -50,3 +50,47 @@ def test_run_live_registers_sigbreak_when_available(monkeypatch):
     sigs = runner._shutdown_signals()
     assert signal_mod.SIGINT in sigs
     assert getattr(signal_mod, "SIGBREAK") in sigs
+
+
+def test_adapter_factory_builds_speechmatics(monkeypatch, tmp_path):
+    """The factory wires SPEECHMATICS_API_KEY, source language, and glossary
+    keyterms (capped by additional_vocab_max) into the adapter."""
+    import os
+    from livetranslate import runner
+    from livetranslate.glossary import Glossary, Term
+
+    monkeypatch.setenv("SPEECHMATICS_API_KEY", "sm-test-key")
+    glossary = Glossary(terms=[Term(src="Komintern", targets={}, priority=1, notes="")],
+                        sha256="x")
+    cfg = {
+        "session": {"source_language": "de"},
+        "asr": {"speechmatics": {"additional_vocab_max": 50, "max_delay": 1.0}},
+        "translate": {"targets": ["es", "fr"]},
+        "display": {"draft_translation": False},
+    }
+    make = runner._adapter_factory(cfg, "speechmatics", glossary)
+    adapter = make()
+    assert adapter.name == "speechmatics"
+    assert adapter.api_key == "sm-test-key"
+    assert adapter.language == "de"
+    assert "Komintern" in adapter.additional_vocab
+    assert adapter.target_languages == []   # draft_translation off in phase 1
+
+
+def test_adapter_factory_speechmatics_targets_when_draft_on(monkeypatch):
+    """With display.draft_translation on, the adapter receives the translate
+    targets so Speechmatics emits realtime draft translations."""
+    import os
+    from livetranslate import runner
+    from livetranslate.glossary import Glossary
+
+    monkeypatch.setenv("SPEECHMATICS_API_KEY", "sm-test-key")
+    glossary = Glossary(terms=[], sha256="x")
+    cfg = {
+        "session": {"source_language": "en"},
+        "asr": {"speechmatics": {"additional_vocab_max": 50, "max_delay": 1.0}},
+        "translate": {"targets": ["es", "fr"]},
+        "display": {"draft_translation": True},
+    }
+    adapter = runner._adapter_factory(cfg, "speechmatics", glossary)()
+    assert adapter.target_languages == ["es", "fr"]

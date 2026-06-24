@@ -38,3 +38,61 @@ def test_no_secrets_in_config(tmp_path):
     p.write_bytes(MINIMAL + b'\n[asr.elevenlabs]\napi_key = "sk-123"\n')
     with pytest.raises(ValueError, match="secret"):
         load_config(p)
+
+def test_config_accepts_speechmatics_adapter(tmp_path):
+    from livetranslate.config import load_config
+    p = tmp_path / "config.toml"
+    p.write_text(
+        '[session]\nsource_language = "en"\n'
+        '[asr]\nadapter = "speechmatics"\nfailover = "elevenlabs"\n'
+        '[translate]\ntargets = ["es"]\nprovider = "openai_chat"\n'
+    )
+    cfg = load_config(p)
+    assert cfg["asr"]["adapter"] == "speechmatics"
+    assert cfg["asr"]["speechmatics"]["additional_vocab_max"] == 50
+    assert cfg["asr"]["speechmatics"]["max_delay"] == 1.0
+
+
+def test_speechmatics_draft_rejects_more_than_five_targets(tmp_path):
+    from livetranslate.config import load_config
+    p = tmp_path / "config.toml"
+    p.write_text(
+        '[session]\nsource_language = "en"\n'
+        '[asr]\nadapter = "speechmatics"\n'
+        '[translate]\ntargets = ["es", "fr", "de", "pt", "ar", "zh"]\n'
+        'provider = "openai_chat"\n'
+        '[display]\ndraft_translation = true\n'
+    )
+    import pytest
+    with pytest.raises(ValueError, match="at most 5 target"):
+        load_config(p)
+
+
+def test_six_targets_allowed_when_draft_translation_off(tmp_path):
+    # The 5-cap only applies to Speechmatics' draft path; the LLM translator has
+    # no such limit, so 6 targets are fine when draft_translation is off.
+    from livetranslate.config import load_config
+    p = tmp_path / "config.toml"
+    p.write_text(
+        '[session]\nsource_language = "en"\n'
+        '[asr]\nadapter = "speechmatics"\n'
+        '[translate]\ntargets = ["es", "fr", "de", "pt", "ar", "zh"]\n'
+        'provider = "openai_chat"\n'
+        '[display]\ndraft_translation = false\n'
+    )
+    cfg = load_config(p)
+    assert len(cfg["translate"]["targets"]) == 6
+
+
+def test_six_targets_allowed_for_non_speechmatics_adapter(tmp_path):
+    from livetranslate.config import load_config
+    p = tmp_path / "config.toml"
+    p.write_text(
+        '[session]\nsource_language = "en"\n'
+        '[asr]\nadapter = "elevenlabs"\n'
+        '[translate]\ntargets = ["es", "fr", "de", "pt", "ar", "zh"]\n'
+        'provider = "openai_chat"\n'
+        '[display]\ndraft_translation = true\n'
+    )
+    cfg = load_config(p)
+    assert len(cfg["translate"]["targets"]) == 6

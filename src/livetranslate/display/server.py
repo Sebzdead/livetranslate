@@ -21,6 +21,7 @@ class DisplayState:
         self.sentences = []
         self.translations = {l: {} for l in langs}
         self.tentative_tail = ""
+        self.drafts = {l: "" for l in langs}   # live draft translation per lang
         self.statuses = []
         self.status_seq = 0   # monotonically increasing; incremented by add_status
         self.version = 0
@@ -43,6 +44,19 @@ class DisplayState:
         with self._cond:
             self.tentative_tail = tail
             self._bump()
+
+    def set_draft(self, lang: str, text: str):
+        """Set the live draft translation for a target language.
+
+        Ephemeral, like tentative_tail: it is the current Speechmatics realtime
+        translation of speech in progress, shown until the authoritative LLM
+        translation lands. Each call overwrites the previous draft; pass "" to
+        clear it. Unknown langs (e.g. "src") are ignored.
+        """
+        with self._cond:
+            if lang in self.drafts:
+                self.drafts[lang] = text
+                self._bump()
 
     def add_status(self, e: StatusEvent):
         with self._cond:
@@ -88,6 +102,11 @@ class DisplayState:
                         items.append({"type": "translation", "sid": sid, "lang": lang,
                                       "text": t.text, "status": t.status,
                                       "paragraph_break": pb})
+                # The draft is appended regardless of after_sid: it is an
+                # ephemeral current-activity indicator, not tied to any sentence.
+                draft = self.drafts.get(lang, "")
+                if draft:
+                    items.append({"type": "draft", "lang": lang, "text": draft})
             return items
 
     def lag_by_lang(self):
@@ -162,8 +181,13 @@ class _Handler(BaseHTTPRequestHandler):
                     self._sse_send(None, {"type": "status", "lag": self.state.lag_by_lang()})
                 else:
                     for item in self.state.snapshot_lang(lang, after_sid):
-                        self._sse_send(item["sid"], item)
-                        after_sid = max(after_sid, item["sid"])
+                        if item["type"] == "draft":
+                            # Live ephemeral value: send without an event id so it
+                            # never advances the Last-Event-ID resume cursor.
+                            self._sse_send(None, item)
+                        else:
+                            self._sse_send(item["sid"], item)
+                            after_sid = max(after_sid, item["sid"])
                     # Send tail activity indicator on ALL non-status streams (src + audience)
                     self._sse_send(None, {"type": "tail", "text": self.state.tentative_tail})
                 new_version = self.state.wait_for_change(version)

@@ -8,7 +8,7 @@ chunk_ms = 100
 ring_seconds = 120
 
 [asr]
-adapter = "elevenlabs"          # "elevenlabs" | "assemblyai"
+adapter = "elevenlabs"          # "elevenlabs" | "assemblyai" | "speechmatics"
 failover = ""                   # optional: "assemblyai"
 give_up_after_s = 0             # 0 = never
 overlap_ms = 2000
@@ -22,6 +22,12 @@ keyterms_max = 50
 
 [asr.assemblyai]
 use_domain_prompt = true
+
+[asr.speechmatics]
+# additional_vocab has a latency/memory penalty for large lists (docs/vendor-notes.md).
+additional_vocab_max = 50
+# max_delay (seconds): lower = faster partials but more revisions. 1.0 is a good default.
+max_delay = 1.0
 
 [segmenter]
 max_words = 45
@@ -46,6 +52,10 @@ domain_blurb = "domain_blurb.txt"
 host = "0.0.0.0"
 port = 8765                     # 8080 is occupied by another app on this machine
 font_scale = 1.4
+# Show Speechmatics realtime translation as an instant italic draft caption,
+# replaced by the glossary-accurate LLM translation when it lands. Requires
+# adapter = "speechmatics". No effect with other adapters.
+draft_translation = false
 
 [health]
 stall_s = 10

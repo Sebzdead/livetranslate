@@ -737,3 +737,47 @@ model = "claude-haiku-4-5"
 max_tokens = 512
 temperature = 0.2
 ```
+
+---
+
+## Speechmatics Realtime (RT v2)
+
+**Date verified:** SCHEMA-DERIVED 2026-06-23 — ⚠️ NOT yet captured live. Validate against a live `SPEECHMATICS_API_KEY` (Task 1 Step 3) before the event.
+
+**Sources consulted (2026-06-23):**
+- <https://docs.speechmatics.com/rt-api-ref>
+- <https://docs.speechmatics.com/features-other/translation>
+- <https://docs.speechmatics.com/speech-to-text/features/custom-dictionary>
+- <https://docs.speechmatics.com/speech-to-text/languages>
+
+### Endpoint & auth
+- `wss://eu.rt.speechmatics.com/v2/` (EU; data residency). Server-side auth: HTTP header `Authorization: Bearer <SPEECHMATICS_API_KEY>` at the WS upgrade.
+
+### Protocol flow
+1. Client → `StartRecognition` (JSON text frame) with `audio_format` + `transcription_config` (+ optional `translation_config`).
+2. Server → `RecognitionStarted` (carries session `id`). **Audio must not be sent until this arrives.**
+3. Client → raw **binary** audio frames (`pcm_s16le`, 16 kHz mono). Server acks each with `AudioAdded` (`seq_no`).
+4. Server → `AddPartialTranscript` (changeable) and `AddTranscript` (final). With translation: `AddPartialTranslation` / `AddTranslation`.
+5. Client → `EndOfStream` (`{"message":"EndOfStream","last_seq_no": <n>}`) at teardown. Server → `EndOfTranscript`.
+6. `Error` (fatal → reconnect), `Warning`/`Info` (non-fatal).
+
+### Transcript schema
+- `metadata.transcript` = full segment text. `metadata.start_time` / `metadata.end_time` = segment bounds in **SECONDS** (× 1000 for ms). `results[]` carries per-word/punctuation timing (not needed; metadata bounds suffice).
+
+### Translation schema
+- `AddTranslation` / `AddPartialTranslation`: `language` (ISO; Chinese = `cmn`), `results[].content` = translated text (join `results` with spaces).
+- `translation_config`: only `target_languages` (max 5) + `enable_partials`. **No glossary/terminology control** — this is why the LLM translator stays authoritative.
+
+### Custom dictionary
+- `transcription_config.additional_vocab`: list of `{"content": "...", "sounds_like": [...]}` or bare strings. **Transcription only** — does not affect translation. ⚠️ Latency/memory penalty for large lists; cap conservatively (default 50).
+
+### Language codes (app ↔ Speechmatics)
+- Source: `en`→`en`, `de`→`de`. Targets identity except **`zh`→`cmn`**. ⚠️ Confirm `ar` (Arabic) target support live — the public docs were ambiguous ("bilingual pack").
+
+### Live validation checklist (run with a real key before the event)
+- [ ] Connect to `wss://eu.rt.speechmatics.com/v2/`; confirm `RecognitionStarted` arrives.
+- [ ] Confirm `metadata.transcript` + seconds timestamps match `tests/fixtures/speechmatics_messages.json`; fix the fixtures + adapter if not.
+- [ ] Confirm `AddTranslation.results[].content` shape and that `cmn` is the Chinese code; confirm `ar` is accepted as a target (or note unsupported).
+- [ ] Measure `additional_vocab` latency penalty at the real glossary size; tune `asr.speechmatics.additional_vocab_max`.
+- [ ] Confirm `max_delay` behavior (lower = faster partials, more revisions).
+- [ ] Update the "Date verified" line to a live date once confirmed.

@@ -62,3 +62,35 @@ def test_wedged_language_does_not_block_segmenter(tmp_path):
             f"expected a warn status about shed load, got {p.state.statuses}"
     finally:
         p.store.close()
+
+
+def test_pipeline_on_draft_sets_display_state_when_enabled(tmp_path):
+    cfg = json.loads(json.dumps(DEFAULTS))
+    cfg["session"]["output_dir"] = str(tmp_path)
+    cfg["translate"].update(provider="openai_chat", base_url="http://x", model="m")
+    cfg["translate"]["targets"] = ["es"]
+    cfg["display"]["draft_translation"] = True
+    adapter = FakeAdapter(scripted=[])
+    translator = LLMTranslator(cfg["translate"],
+                               post=lambda *a: {"ok": True, "text": "X."})
+    pipe = Pipeline(cfg, adapter=adapter, translator=translator,
+                    glossary_blocks={"es": ""}, domain_blurb="", enable_display=False)
+    pipe._on_draft("es", "borrador")
+    assert pipe.state.drafts["es"] == "borrador"
+    pipe.store.close()
+
+
+def test_pipeline_on_draft_noop_when_disabled(tmp_path):
+    cfg = json.loads(json.dumps(DEFAULTS))
+    cfg["session"]["output_dir"] = str(tmp_path)
+    cfg["translate"].update(provider="openai_chat", base_url="http://x", model="m")
+    cfg["translate"]["targets"] = ["es"]
+    cfg["display"]["draft_translation"] = False
+    adapter = FakeAdapter(scripted=[])
+    translator = LLMTranslator(cfg["translate"],
+                               post=lambda *a: {"ok": True, "text": "X."})
+    pipe = Pipeline(cfg, adapter=adapter, translator=translator,
+                    glossary_blocks={"es": ""}, domain_blurb="", enable_display=False)
+    pipe._on_draft("es", "borrador")
+    assert pipe.state.drafts["es"] == ""
+    pipe.store.close()

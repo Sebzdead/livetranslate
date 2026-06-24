@@ -12,9 +12,9 @@ class DyingAdapter(FakeAdapter):
         super().__init__(scripted)
         self.die_on_send, self.sends, self.starts = die_on_send, 0, 0
 
-    def start(self, on_event, on_status):
+    def start(self, on_event, on_status, on_draft=None):
         self.starts += 1
-        super().start(on_event, on_status)
+        super().start(on_event, on_status, on_draft)
 
     def send_audio(self, chunk):
         self.sends += 1
@@ -176,3 +176,74 @@ def test_force_reconnect_is_idempotent_while_reconnecting():
     # exactly one reconnect cycle ran (adapter restarted once beyond initial)
     assert a.starts if hasattr(a, "starts") else True
     assert sum(1 for s in statuses if "reconnecting(1)" in s.message) <= 2
+
+
+def test_resilient_passes_on_draft_to_adapter():
+    """ResilientASR forwards on_draft to the wrapped adapter's start()."""
+    from livetranslate.asr.base import ResilientASR
+
+    captured = {}
+
+    class DraftAdapter:
+        name = "draft-fake"
+        def start(self, on_event, on_status, on_draft=None):
+            captured["on_draft"] = on_draft
+        def send_audio(self, chunk):
+            pass
+        def flush_and_stop(self, timeout_s=8.0):
+            pass
+
+    r = ResilientASR(lambda: DraftAdapter(), ring=None)
+    sink = lambda lang, text: None
+    r.start(on_event=lambda e: None, on_status=lambda e: None, on_draft=sink)
+    assert captured["on_draft"] is sink
+
+
+def test_resilient_forwards_on_draft_after_reconnect():
+    """on_draft must survive a reconnect: the post-reconnect adapter receives
+    the same callback that was passed to ResilientASR.start()."""
+    from livetranslate.asr.base import ResilientASR
+
+    # Each factory call records the on_draft it received in start().
+    received_drafts: list = []
+    starts_total = {"n": 0}
+
+    class RecordingAdapter:
+        name = "recording-fake"
+        def start(self, on_event, on_status, on_draft=None):
+            starts_total["n"] += 1
+            received_drafts.append(on_draft)
+        def send_audio(self, chunk):
+            pass
+        def flush_and_stop(self, timeout_s=8.0):
+            pass
+
+    ring = RingBuffer(seconds=10)
+    r = ResilientASR(
+        lambda: RecordingAdapter(),
+        ring=ring,
+        overlap_ms=0,
+        backoff_base_s=0.01,
+        backoff_max_s=0.02,
+    )
+    sink = lambda lang, text: None
+    r.start(on_event=lambda e: None, on_status=lambda e: None, on_draft=sink)
+
+    # Trigger a reconnect the same way test_eviction_fallback_updates_stream_offset does.
+    r.force_reconnect()
+    deadline = time.monotonic() + 3.0
+    while starts_total["n"] < 2 and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    assert starts_total["n"] >= 2, (
+        f"reconnect did not spawn a second adapter; starts={starts_total['n']}"
+    )
+    assert len(received_drafts) >= 2, (
+        f"expected at least 2 on_draft recordings; got {len(received_drafts)}"
+    )
+    for i, draft in enumerate(received_drafts):
+        assert draft is sink, (
+            f"adapter #{i} received on_draft={draft!r}, expected sink={sink!r}"
+        )
+
+    r.flush_and_stop(timeout_s=1)
