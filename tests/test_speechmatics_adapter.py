@@ -214,3 +214,41 @@ def test_recv_loop_does_not_warn_on_translation_when_drafts_disabled():
     a._ws = OneShot(FIXTURES["translation"])
     a._recv_loop()
     assert not [s for s in statuses if s.level == "warn"]
+
+
+def _make_chunk(seq=0):
+    from livetranslate.types import AudioChunk
+    return AudioChunk(pcm16=b"\x00\x00", sample_rate=16000,
+                      t_start_ms=seq * 100, duration_ms=100, seq=seq)
+
+
+def test_send_audio_never_blocks_and_sheds_oldest_when_full():
+    # The send loop is gated on RecognitionStarted; until it arrives nothing
+    # drains the queue. send_audio must never block the feed thread — on a full
+    # queue it sheds the oldest chunk (ResilientASR replays from the ring on
+    # reconnect). With the old blocking put() this loop would hang forever.
+    a = make_adapter()
+    maxsize = a._send_q.maxsize
+    for i in range(maxsize + 50):       # far exceed capacity, no consumer running
+        a.send_audio(_make_chunk(i))
+    assert a._send_q.qsize() == maxsize  # bounded; never blocked
+
+
+def test_flush_and_stop_does_not_hang_when_never_started_and_queue_full():
+    # Reproduces the reconnect/shutdown deadlock: queue full + sender gated on
+    # RecognitionStarted. flush_and_stop must enqueue the sentinel without
+    # blocking and return promptly.
+    import threading
+
+    a = make_adapter()
+    # Dummy already-finished threads so the joins in flush_and_stop return at once.
+    done = threading.Thread(target=lambda: None)
+    done.start()
+    done.join()
+    a._sender = done
+    a._receiver = done
+    a._ws = type("WS", (), {"close": lambda self: None})()
+    for i in range(a._send_q.maxsize):  # fill to capacity
+        a.send_audio(_make_chunk(i))
+    a.flush_and_stop(timeout_s=1.0)     # must not hang
+    assert a._stop.is_set()

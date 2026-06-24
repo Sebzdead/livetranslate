@@ -124,24 +124,53 @@ class SpeechmaticsRTAdapter:
 
     # -- audio path ---------------------------------------------------------
     def send_audio(self, chunk: AudioChunk) -> None:
-        self._send_q.put(chunk)   # blocks if full: backpressure to source
+        # Non-blocking: the audio feed thread must NEVER block here. The send
+        # loop is gated on RecognitionStarted, so until that arrives nothing
+        # drains the queue; a blocking put() would wedge the feed thread and, in
+        # turn, deadlock flush_and_stop / reconnect. On a full queue, shed the
+        # oldest chunk. ResilientASR replays from the ring buffer on reconnect,
+        # so a chunk shed during a stalled/failed start is recovered.
+        self._enqueue(chunk)
+
+    def _enqueue(self, item) -> None:
+        try:
+            self._send_q.put_nowait(item)
+        except queue.Full:
+            try:
+                self._send_q.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._send_q.put_nowait(item)
+            except queue.Full:
+                pass
 
     def _send_loop(self) -> None:
         # Audio must not be sent before RecognitionStarted, or the server errors.
-        if not self._started.wait(timeout=15):
-            self.on_status(status("error", "asr", "RecognitionStarted not received"))
-            return
-        while not self._stop.is_set():
-            chunk = self._send_q.get()
-            if chunk is None:
-                self._send_end_of_stream()
+        # Poll so we stay responsive to shutdown (_stop) and give up after ~15s
+        # so a dead start triggers reconnect via the error status instead of
+        # hanging the sender thread.
+        deadline = time.monotonic() + 15.0
+        while not self._started.wait(timeout=0.2):
+            if self._stop.is_set():
                 return
+            if time.monotonic() >= deadline:
+                self.on_status(status("error", "asr", "RecognitionStarted not received"))
+                return
+        while not self._stop.is_set():
+            try:
+                chunk = self._send_q.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if chunk is None:
+                break
             try:
                 self._ws.send_binary(chunk.pcm16)
                 self._seq += 1
             except Exception as e:   # noqa: BLE001 — surfaced as status
                 self.on_status(status("error", "asr", f"send failed: {e}"))
                 return
+        self._send_end_of_stream()
 
     def _send_end_of_stream(self) -> None:
         try:
@@ -202,9 +231,14 @@ class SpeechmaticsRTAdapter:
                                   f"vendor message: {json.dumps(msg)[:200]}"))
 
     def flush_and_stop(self, timeout_s: float = 8.0) -> None:
-        self._send_q.put(None)
-        self._sender.join(timeout=timeout_s)
+        # Enqueue the EndOfStream sentinel without blocking (the queue may be
+        # full and the sender may still be gated on RecognitionStarted).
+        self._enqueue(None)
+        # _stop is the backstop: it unblocks a sender still waiting for
+        # RecognitionStarted, so the join below can never hang on a session that
+        # never started.
         self._stop.set()
+        self._sender.join(timeout=timeout_s)
         # Close the WS BEFORE joining the receiver so its blocking recv()
         # unblocks immediately instead of burning the join timeout.
         try:
