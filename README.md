@@ -2,7 +2,11 @@
 
 ![LiveTranslate UI Preview](UI.png)
 
-Captures a conference speaker's audio, transcribes it in real time with ElevenLabs Scribe v2 Realtime (or AssemblyAI Universal-3 Pro / Speechmatics as failover/bake-off adapters), segments the transcript into finalized sentences, translates each sentence into multiple target languages via an LLM API with a glossary-enforced terminology, and serves per-language reading displays to browsers on the local network. Attendees point their phones at a URL on the venue Wi-Fi and read the talk live in their own language.
+**livetranslate turns a live talk into subtitles in the audience's own languages, on their own phones.** A presenter speaks; the software listens to the room's audio, writes down what is being said, translates it into several languages, and shows each translation on its own web page. Attendees open a link on the venue Wi-Fi and read along in the language they pick — a few seconds behind the speaker, like live subtitles at a conference.
+
+Under the hood it uses commercial speech-to-text (ElevenLabs, AssemblyAI, or Speechmatics) and an AI translator that is held to a fixed glossary, so names and field-specific terms come out the way you want them.
+
+> **Is this for me?** Running an event needs **one technical person** (the "operator") to set it up and press start — see [What you'll need](#what-youll-need). **Attendees and presenters need nothing but a phone and the link.** If you are that operator and want the plain-language tour first, read [How it works](#how-it-works-plain-language), [How it stays reliable](#built-for-live-events-how-it-stays-reliable), and [Limitations](#limitations--what-to-expect) before the configuration reference.
 
 **Documentation**
 
@@ -12,6 +16,66 @@ Captures a conference speaker's audio, transcribes it in real time with ElevenLa
 | [`live-translation-pipeline-spec.md`](live-translation-pipeline-spec.md) | Full design specification — architecture, invariants, failure handling |
 | [`docs/vendor-notes.md`](docs/vendor-notes.md) | ElevenLabs / AssemblyAI / Speechmatics API verification notes and open uncertainties |
 | [`docs/superpowers/plans/`](docs/superpowers/plans/) | Implementation plans (pipeline, operator control panel) |
+
+---
+
+## How it works (plain language)
+
+Think of it as an assembly line that runs continuously while someone is on stage:
+
+1. **It listens.** The software takes the speaker's audio — ideally a clean feed from the sound desk, not a laptop's built-in mic — in real time.
+2. **It writes down what's said.** A speech-to-text service turns the audio into text and groups it into complete sentences. A glossary you prepare beforehand helps it spell names, acronyms, and field-specific jargon correctly.
+3. **It translates each sentence.** Every finished sentence is sent to an AI translator, once per target language. The same glossary forces your required wording for key terms (e.g. always render *rate of profit* as *tasa de ganancia* in Spanish), and the translator is given the previous sentence for context so it reads smoothly.
+4. **The audience reads along.** Each language has its own web page. Translations appear line by line as the talk proceeds. Attendees just keep the page open; new lines scroll in on their own.
+
+**Optional "instant draft" mode** (Speechmatics only): a fast, rough translation can appear *immediately* in grey italics so the audience never stares at a blank screen, then it is quietly replaced by the polished, glossary-correct translation a moment later. See [Speechmatics (ASR + draft translation)](#speechmatics-asr--draft-translation).
+
+There is nothing to install on attendees' phones — it is an ordinary web page on the local network.
+
+## What you'll need
+
+| You need | Why | Notes |
+|---|---|---|
+| **One technical operator** | To edit settings, paste in keys, run an audio check, and press start | The [operator control panel](#operator-control-panel-recommended) means they don't need to use a terminal |
+| **A clean audio feed** | Transcription quality is only as good as the audio | A line/USB feed from the mixing desk beats an open-room mic; the app refuses to start if it can't find the audio device you named |
+| **Reliable internet at the lectern** | Speech-to-text and translation run in the cloud | No internet ⇒ no transcription or translation. Have a backup connection for important events |
+| **Venue Wi-Fi for attendees** | Their phones load the reading pages from the operator's machine over the local network | Attendees and the operator's laptop must be on the same network |
+| **Paid API accounts** | The cloud services bill per hour of audio and per translation | You supply keys for a speech service (ElevenLabs, AssemblyAI, or Speechmatics) **and** a translation model (e.g. DeepSeek/OpenAI-compatible, or Anthropic). See [Secrets](#secrets--environment-variables-only) |
+| **A glossary (recommended)** | So names and jargon are heard and translated correctly | A simple spreadsheet of terms; the control panel can even draft one from the speaker's notes |
+
+Source audio must be in **English or German** (chosen per event). Translations are available into **Spanish, French, German, Portuguese, Arabic, and Chinese**.
+
+---
+
+## Built for live events: how it stays reliable
+
+A talk doesn't pause for a software hiccup, so the system is designed to keep going and to fail quietly rather than visibly:
+
+- **It reconnects itself.** If the connection to the speech service drops, it automatically reconnects (backing off and retrying), and **replays the last couple of seconds of audio** from a short rolling buffer so words spoken during the blip aren't lost.
+- **It can switch providers mid-talk.** You can configure a *failover* speech service; if the primary one keeps failing, the system moves to the backup on its own.
+- **It survives a crash.** Every sentence and translation is written to disk as it happens. If the program (or the laptop) dies, `--resume` rebuilds the displays exactly as they were and continues.
+- **One slow language can't stall the rest.** Each language is translated on its own track. If one translation is slow or a request fails, the others keep flowing, and the affected line shows a brief "translation unavailable" placeholder instead of freezing the whole show.
+- **A watchdog watches the watchers.** A health monitor flags stalls, and long sessions can rotate their connection proactively before hitting a provider's time limit.
+- **The audience display behaves itself.** New lines scroll in automatically, but if a reader scrolls up to re-read something, the page won't yank them back down — a "jump to live" button appears instead.
+- **It won't start mis-configured.** If the named audio device isn't present, the app refuses to start (so you never broadcast silence from the wrong input), and configuration edits are validated before they're saved.
+- **Your keys stay local.** API keys live only in environment variables / a local file, never in the shareable config, and the operator control panel is reachable only from the operator's own machine.
+
+None of this removes the need for a dry run — but it means a momentary network wobble or a single bad translation is a ripple, not a blackout.
+
+## Limitations & what to expect
+
+Be honest with your audience about what this is and isn't:
+
+- **It's machine translation, not a human interpreter.** It's fast and usually fluent, but it can miss nuance, humour, or idiom. The glossary keeps *your key terms* correct; it can't guarantee perfect phrasing everywhere.
+- **It runs a few seconds behind.** Expect roughly a few seconds of delay (target: about 4 seconds typical, up to ~7 at peak). The optional draft mode makes something appear almost instantly, but that first version is approximate until the polished one replaces it.
+- **It depends on the cloud.** Speech-to-text and translation are online services. No internet means no captions, and the services **cost money per hour of audio** and per translation — budget for it.
+- **Audio quality is everything.** Strong accents, crosstalk, heavy background noise, or rapid switching between languages will degrade accuracy. A clean feed from the sound desk matters far more than any setting.
+- **Fixed language set.** Source audio is English or German only; translation targets are the six listed above. (With Speechmatics' instant-draft mode on, at most five target languages at once.)
+- **Text only.** Attendees *read* the translation — there is no spoken/audio output.
+- **It needs a competent operator and setup time.** The control panel removes the terminal, but someone still has to configure audio, paste keys, load the glossary, and test before doors open. It is not a plug-and-play appliance.
+- **Speechmatics support is new.** The Speechmatics integration's message format was built from documentation and **should be validated against a live key before you rely on it** (especially the instant-draft mode). See [`docs/vendor-notes.md`](docs/vendor-notes.md).
+
+The [pre-event checklist](#pre-event-checklist-spec-10-m7) below walks through the dry run that catches most of these before they reach the audience.
 
 ---
 
@@ -273,7 +337,7 @@ Pass criteria: zero unrecovered disconnects, zero dead threads, RSS growth < 150
 
 ## Tests
 
-No API keys needed. All 160 tests run offline using fixtures.
+No API keys needed. The full test suite runs offline using fixtures.
 
 ```sh
 .venv/bin/python -m pytest tests/ -q
