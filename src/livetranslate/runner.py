@@ -73,9 +73,10 @@ def _shutdown_signals():
 
 def run_live(cfg, resume_dir=None) -> int:
     glossary = Glossary.load(cfg["glossary"]["path"], cfg["glossary"]["domain_blurb"])
-    log.info("glossary: %d terms (hash %s); keyterms sent: %d",
-             len(glossary.terms), glossary.sha256[:8],
-             len(glossary.keyterms(cap=cfg["asr"]["elevenlabs"]["keyterms_max"])))
+    # Each adapter logs its own keyterm/vocab count in __init__; keep this line
+    # adapter-agnostic so it never assumes a specific [asr.<adapter>] sub-block.
+    log.info("glossary: %d terms (hash %s)",
+             len(glossary.terms), glossary.sha256[:8])
 
     primary = _adapter_factory(cfg, cfg["asr"]["adapter"], glossary)
     failover = (_adapter_factory(cfg, cfg["asr"]["failover"], glossary)
