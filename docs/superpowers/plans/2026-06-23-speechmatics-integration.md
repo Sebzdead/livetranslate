@@ -1314,4 +1314,3 @@ git commit -m "docs: document Speechmatics adapter and instant draft translation
 - **Spec coverage:** Phase 1 (adapter + failover) = Tasks 2–5; Phase 2 (draft layer) = Tasks 6–10; italic fade-in replaced-by-regular = Task 9; ElevenLabs failover = Task 5 + config (already supported by `ResilientASR.failover_factory`). Live verification = Task 1 + rollout.
 - **Glossary fidelity preserved:** the LLM translator (`translate.py`) and its `block_for(lang)` rendering are untouched; the draft is explicitly non-authoritative.
 - **Type consistency:** `on_draft(app_lang: str, text: str)` is used identically in `base.py` (`OnDraft`), the Speechmatics adapter, `ResilientASR`, and `Pipeline._on_draft`. Draft SSE frame shape `{"type":"draft","lang","text"}` matches between `snapshot_lang` (Task 7) and `view.html` (Task 9). Language codes cross the app/Speechmatics boundary only via `to_sm`/`to_app` (Task 3/4).
-```
