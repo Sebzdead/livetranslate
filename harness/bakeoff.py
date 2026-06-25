@@ -15,14 +15,25 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--audio", required=True)
-    ap.add_argument("--ref", required=True)
+    ap.add_argument("--ref", default=None,
+                    help="verbatim reference transcript for WER/jargon recall; "
+                         "omit on a partial slice where it would not align")
     ap.add_argument("--langs", default="es,fr,de,pt")
+    ap.add_argument("--adapters", default="speechmatics,elevenlabs",
+                    help="comma-separated adapters to compare")
+    ap.add_argument("--rtf", type=float, default=None,
+                    help="real-time factor for feeding; >1 feeds faster than "
+                         "real time (fine for WER/jargon; distorts latency)")
     args = ap.parse_args(argv)
     rows = []
-    for adapter in ("elevenlabs", "assemblyai"):
-        run_file.main(["--config", args.config, "--audio", args.audio,
-                       "--ref", args.ref, "--adapter", adapter,
-                       "--langs", args.langs, "--no-display"])
+    for adapter in [a for a in args.adapters.split(",") if a]:
+        run_argv = ["--config", args.config, "--audio", args.audio,
+                    "--adapter", adapter, "--langs", args.langs, "--no-display"]
+        if args.ref:
+            run_argv += ["--ref", args.ref]
+        if args.rtf is not None:
+            run_argv += ["--rtf", str(args.rtf)]
+        run_file.main(run_argv)
         sdir = sorted(Path("sessions").iterdir())[-1]
         rep = json.loads((sdir / "report.json").read_text())
         events = [json.loads(l) for l in (sdir / "events.jsonl").read_text().splitlines()]

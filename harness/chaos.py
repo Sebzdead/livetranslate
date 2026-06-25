@@ -16,8 +16,8 @@ class ChaosWrapper:
         self.inner, self.cuts = inner, cuts
         self.name = inner.name
 
-    def start(self, on_event, on_status):
-        self.inner.start(on_event, on_status)
+    def start(self, on_event, on_status, on_draft=None):
+        self.inner.start(on_event, on_status, on_draft)
 
     def send_audio(self, chunk):
         if self.cuts and chunk.t_start_ms >= self.cuts[0]:
@@ -41,13 +41,18 @@ def main(argv=None) -> int:
     ap.add_argument("--audio", required=True)
     ap.add_argument("--cuts-ms", required=True,
                     help="comma-separated stream offsets, e.g. 30000,95000,150500")
+    ap.add_argument("--adapter", default=None,
+                    help="override cfg adapter (e.g. speechmatics) for the chaos run")
     args = ap.parse_args(argv)
     all_cuts = sorted(int(x) for x in args.cuts_ms.split(","))
     shared_cuts = list(all_cuts)        # the wrapper pops this copy as it cuts
     orig = run_file.build_adapter
     run_file.build_adapter = lambda cfg, name, g: ChaosWrapper(orig(cfg, name, g), shared_cuts)
+    run_argv = ["--config", args.config, "--audio", args.audio, "--no-display"]
+    if args.adapter:
+        run_argv += ["--adapter", args.adapter]
     try:
-        run_file.main(["--config", args.config, "--audio", args.audio, "--no-display"])
+        run_file.main(run_argv)
     finally:
         run_file.build_adapter = orig
     cfg = load_config(args.config)

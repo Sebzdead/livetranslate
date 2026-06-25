@@ -155,6 +155,34 @@ def test_short_first_final_not_dropped():
 
 
 # ---------------------------------------------------------------------------
+# Speechmatics emits forward-only, contiguous, fine-grained finals (often a
+# single word; each final's start == the previous final's end). Such finals can
+# legitimately end within DEDUPE_SLACK_MS of the committed point yet introduce
+# entirely NEW audio. The end-only dedupe must NOT drop them — captured live
+# 2026-06-25, where it silently lost "what/this/of/not/are/..." function words.
+# ---------------------------------------------------------------------------
+def test_forward_only_fine_grained_finals_not_dropped():
+    sg = make()
+    # Real captured Speechmatics sequence (first sentence): contiguous word finals.
+    seq = [
+        ("I ", 0, 360), ("think ", 360, 720), ("what ", 720, 960),
+        ("we are ", 960, 1240), ("discussing ", 1240, 1720), ("this ", 1720, 1960),
+        ("week is ", 1960, 2400), ("how ", 2400, 2880), ("hundreds ", 2880, 3520),
+        ("of ", 3520, 3640), ("thousands, if ", 3640, 4280), ("not ", 4280, 4440),
+        ("millions of ", 4440, 5400), ("people ", 5400, 5760), ("are ", 5760, 5920),
+        ("looking to the ", 5920, 6440), ("ideas ", 6440, 6800), ("of ", 6800, 6960),
+        ("communism. ", 6960, 7840),
+    ]
+    out = []
+    for text, s, e in seq:
+        out += sg.on_event(ev("final", text, s, e))
+    assert len(out) == 1, f"expected 1 sentence, got {[s.text for s in out]}"
+    assert out[0].text == ("I think what we are discussing this week is how "
+                           "hundreds of thousands, if not millions of people are "
+                           "looking to the ideas of communism.")
+
+
+# ---------------------------------------------------------------------------
 # Fix 3 (C1): widen overlap-merge window so long overlaps aren't missed
 # ---------------------------------------------------------------------------
 def test_overlap_merge_longer_than_12_tokens():

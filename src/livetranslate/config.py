@@ -4,6 +4,10 @@ from pathlib import Path
 
 ALLOWED_LANGS = {"es", "fr", "de", "pt", "ar", "zh"}
 SPEECHMATICS_MAX_TARGETS = 5   # Speechmatics realtime translation_config cap
+# Targets the LLM translator handles but Speechmatics RT translation does NOT.
+# Live-validated 2026-06-25: `ar` from `en` returns a protocol_error that aborts
+# StartRecognition (no RecognitionStarted), so it must never reach the draft path.
+SPEECHMATICS_UNSUPPORTED_TARGETS = {"ar"}
 
 DEFAULTS: dict = {
     "session": {"source_language": "en", "output_dir": "sessions"},
@@ -89,4 +93,13 @@ def load_config(path: str | Path) -> dict:
             f"{SPEECHMATICS_MAX_TARGETS} target languages, but translate.targets "
             f"has {len(cfg['translate']['targets'])}; reduce the list or set "
             "display.draft_translation = false")
+    if cfg["asr"]["adapter"] == "speechmatics" and cfg["display"]["draft_translation"]:
+        unsupported = sorted(set(cfg["translate"]["targets"])
+                             & SPEECHMATICS_UNSUPPORTED_TARGETS)
+        if unsupported:
+            raise ValueError(
+                f"Speechmatics draft translation does not support target "
+                f"language(s) {unsupported} (rejected at StartRecognition); "
+                "remove them from translate.targets or set "
+                "display.draft_translation = false (the LLM translator handles them)")
     return cfg

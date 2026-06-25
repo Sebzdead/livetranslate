@@ -1,4 +1,5 @@
 {
+  "_provenance": "Live-validated 2026-06-25 vs real Speechmatics RT v2 (EU) via harness/probe_speechmatics.py. Message names, metadata.transcript, seconds timestamps, and AddTranslation shape (incl. cmn) confirmed. ar is rejected as a translation target from en (protocol_error, aborts the session) and is not represented here. Live RecognitionStarted/AddTranscript carry extra fields the adapter ignores; this fixture keeps only the fields the adapter parses.",
   "recognition_started": {
     "message": "RecognitionStarted",
     "id": "807670e9-14af-4fa2-9e8f-5d525c22156e"

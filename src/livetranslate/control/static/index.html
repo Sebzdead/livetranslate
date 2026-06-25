@@ -303,7 +303,9 @@
       <div><label>Source language</label>
         <select id="cfg-srclang"><option>en</option><option>de</option></select></div>
       <div><label>ASR adapter</label>
-        <select id="cfg-adapter"><option>elevenlabs</option><option>assemblyai</option></select></div>
+        <select id="cfg-adapter"><option>speechmatics</option><option>elevenlabs</option><option>assemblyai</option></select></div>
+      <div><label>Failover adapter</label>
+        <select id="cfg-failover"><option value="">none</option><option>elevenlabs</option><option>assemblyai</option><option>speechmatics</option></select></div>
     </div>
     <label>Target languages (comma-separated BCP-47, e.g. es, fr, de, pt)</label>
     <input type="text" id="cfg-targets">

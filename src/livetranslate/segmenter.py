@@ -49,10 +49,20 @@ class Segmenter:
         text = _norm_ws(ev.text)
         if not text:
             return []
-        if ev.t_audio_end_ms <= self._last_committed_end_ms + self.DEDUPE_SLACK_MS:
+        # Drop as duplicate/out-of-order only when the final actually re-covers
+        # already-committed audio (it starts before the committed point). The
+        # SLACK absorbs timestamp jitter on reconnect-replay re-transcriptions.
+        # Forward-only finals that merely END close to the committed point
+        # introduce NEW audio (e.g. Speechmatics' contiguous word-level finals,
+        # whose start == the previous final's end) and must fall through to the
+        # normal append path; true boundary overlaps are handled by
+        # _merge_overlap below.
+        if (ev.t_audio_start_ms < self._last_committed_end_ms
+                and ev.t_audio_end_ms <= self._last_committed_end_ms + self.DEDUPE_SLACK_MS):
             log.warning("segmenter: dropped duplicate/out-of-order final "
-                        "(end=%d <= committed=%d+%d): %r", ev.t_audio_end_ms,
-                        self._last_committed_end_ms, self.DEDUPE_SLACK_MS, text)
+                        "(start=%d < committed=%d, end=%d <= committed+%d): %r",
+                        ev.t_audio_start_ms, self._last_committed_end_ms,
+                        ev.t_audio_end_ms, self.DEDUPE_SLACK_MS, text)
             return []
         tokens = text.split()
         if ev.t_audio_start_ms < self._last_committed_end_ms:

@@ -30,6 +30,17 @@ def build_adapter(cfg: dict, name: str, glossary: Glossary):
             language=cfg["session"]["source_language"],
             keyterms=glossary.keyterms(cap=100),
             prompt=glossary.domain_blurb if cfg["asr"]["assemblyai"]["use_domain_prompt"] else "")
+    if name == "speechmatics":
+        from livetranslate.asr.speechmatics import SpeechmaticsRTAdapter
+        scfg = cfg["asr"]["speechmatics"]
+        # Transcription-only for the bake-off (the LLM translator owns translation,
+        # same as the other adapters); no target_languages so draft translation is off.
+        return SpeechmaticsRTAdapter(
+            api_key=os.environ["SPEECHMATICS_API_KEY"],
+            language=cfg["session"]["source_language"],
+            additional_vocab=glossary.keyterms(cap=scfg["additional_vocab_max"]),
+            additional_vocab_max=scfg["additional_vocab_max"],
+            max_delay=scfg["max_delay"])
     raise SystemExit(f"unknown adapter {name}")
 
 

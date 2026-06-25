@@ -70,10 +70,10 @@ Be honest with your audience about what this is and isn't:
 - **It runs a few seconds behind.** Expect roughly a few seconds of delay (target: about 4 seconds typical, up to ~7 at peak). The optional draft mode makes something appear almost instantly, but that first version is approximate until the polished one replaces it.
 - **It depends on the cloud.** Speech-to-text and translation are online services. No internet means no captions, and the services **cost money per hour of audio** and per translation — budget for it.
 - **Audio quality is everything.** Strong accents, crosstalk, heavy background noise, or rapid switching between languages will degrade accuracy. A clean feed from the sound desk matters far more than any setting.
-- **Fixed language set.** Source audio is English or German only; translation targets are the six listed above. (With Speechmatics' instant-draft mode on, at most five target languages at once.)
+- **Fixed language set.** Source audio is English or German only; translation targets are the six listed above. (With Speechmatics' instant-draft mode on, at most five target languages at once, and **Arabic is not available as a Speechmatics draft target** — it still works through the main LLM translator.)
 - **Text only.** Attendees *read* the translation — there is no spoken/audio output.
 - **It needs a competent operator and setup time.** The control panel removes the terminal, but someone still has to configure audio, paste keys, load the glossary, and test before doors open. It is not a plug-and-play appliance.
-- **Speechmatics support is new.** The Speechmatics integration's message format was built from documentation and **should be validated against a live key before you rely on it** (especially the instant-draft mode). See [`docs/vendor-notes.md`](docs/vendor-notes.md).
+- **Speechmatics is the default speech service.** Its realtime wire format has been **validated against a live key** (2026-06-25): transcription, timestamps, and translation (including Chinese as `cmn`) all confirmed; ElevenLabs is configured as the automatic failover. As always, run the pre-event dry run with your own key. See [`docs/vendor-notes.md`](docs/vendor-notes.md).
 
 The [pre-event checklist](#pre-event-checklist-spec-10-m7) below walks through the dry run that catches most of these before they reach the audience.
 
@@ -103,13 +103,13 @@ Edit `config.toml` before each event. All secrets go in environment variables on
 |---|---|
 | `[session]` | `source_language` — pin to `"en"` or `"de"` per event; `output_dir` — session JSONL root |
 | `[audio]` | `device_substring` — substring of the audio interface name (app refuses to start if not matched); `chunk_ms` — feed size (default 100) |
-| `[asr]` | `adapter` — `"elevenlabs"`, `"assemblyai"`, or `"speechmatics"`; `failover` — optional second adapter; `overlap_ms` — replay overlap on reconnect |
+| `[asr]` | `adapter` — `"elevenlabs"`, `"assemblyai"`, or `"speechmatics"` (**default `"speechmatics"`**); `failover` — second adapter to switch to when the primary stays down (**default `"elevenlabs"`**); `give_up_after_s` — seconds the primary may keep failing before failover (default `30`; `0` = never); `overlap_ms` — replay overlap on reconnect |
 | `[asr.elevenlabs]` | `keyterms_max = 50` — ElevenLabs realtime cap (surcharged at $0.05/hr extra; count logged at startup) |
 | `[asr.assemblyai]` | `use_domain_prompt` — pass `domain_blurb.txt` as a free-form transcription hint (u3-rt-pro only) |
 | `[asr.speechmatics]` | `additional_vocab_max = 50` — glossary terms injected as custom vocabulary (large lists incur a latency penalty; see `docs/vendor-notes.md`); `max_delay = 1.0` — seconds before partials are emitted (lower = faster but more revisions) |
 | `[display]` | `draft_translation = false` — when `true` (Speechmatics adapter only), shows an instant italic draft caption from Speechmatics' bundled realtime translation, replaced by the glossary-accurate LLM translation when it lands |
 | `[segmenter]` | `max_words = 45`, `max_pending_s = 12` — sentence finalization thresholds |
-| `[translate]` | `targets` — list of BCP-47 codes (default `["es","fr","de","pt"]`; add `"ar"`, `"zh"` to enable; **max 5 when Speechmatics `draft_translation` is on**); `provider`, `base_url`, `model` — **must be set before translation works** (see below); `timeout_s`, `batch_threshold`, `batch_max` |
+| `[translate]` | `targets` — list of BCP-47 codes (default `["es","fr","de","pt"]`; add `"ar"`, `"zh"` to enable; **max 5 when Speechmatics `draft_translation` is on, and `"ar"` is not allowed in that mode** — Speechmatics can't translate to Arabic); `provider`, `base_url`, `model` — **must be set before translation works** (see below); `timeout_s`, `batch_threshold`, `batch_max` |
 | `[glossary]` | `path = "glossary.tsv"`, `domain_blurb = "domain_blurb.txt"` |
 | `[display]` | `host = "0.0.0.0"`, `port = 8080`, `font_scale = 1.6` |
 | `[health]` | `stall_s = 10` — seconds before the watchdog flags a stall |
@@ -117,13 +117,16 @@ Edit `config.toml` before each event. All secrets go in environment variables on
 
 ### Speechmatics (ASR + draft translation)
 
-Speechmatics is a selectable ASR adapter alongside ElevenLabs and AssemblyAI. To use it:
+Speechmatics is the **default primary** ASR adapter, with ElevenLabs configured as the automatic failover. This is the shipped configuration:
 
 ```toml
 [asr]
-adapter  = "speechmatics"
-failover = "elevenlabs"   # ResilientASR fails over automatically on disconnect
+adapter         = "speechmatics"
+failover        = "elevenlabs"   # ResilientASR switches to this if the primary stays down
+give_up_after_s = 30             # seconds of failed reconnects before failing over (0 = never)
 ```
+
+To run ElevenLabs (or AssemblyAI) as primary instead, just set `adapter` accordingly; both remain fully supported.
 
 **API key** — add to the gitignored `.env` (or pass as an environment variable):
 
@@ -145,9 +148,9 @@ draft_translation = true   # Speechmatics adapter only; no effect with elevenlab
 
 When enabled, each audience display shows the Speechmatics translation immediately as an italic draft line; it is replaced (without flicker) by the final LLM translation once it arrives. Set `draft_translation = false` (the default) to suppress it and show only final translations.
 
-> **Target-language limit:** Speechmatics' realtime translation accepts at most **5** target languages. With `draft_translation = true` on the Speechmatics adapter, `translate.targets` is forwarded to its `translation_config`, so the list must have ≤ 5 entries — `load_config` rejects more. The LLM translator itself has no such limit, so all 6 supported targets are fine when `draft_translation = false` (or with another adapter).
+> **Target-language limits:** Speechmatics' realtime translation accepts at most **5** target languages, and **does not support Arabic (`ar`)** as a target. With `draft_translation = true` on the Speechmatics adapter, `translate.targets` is forwarded to its `translation_config`, so the list must have ≤ 5 entries and contain no `"ar"` — `load_config` rejects either. The LLM translator itself has no such limits, so all 6 supported targets (including `ar`) are fine when `draft_translation = false` (or with another adapter).
 
-**Wire format note** — the Speechmatics message schema is schema-derived and must be live-validated against a real `SPEECHMATICS_API_KEY` before each event. See `docs/vendor-notes.md` (Speechmatics section) for the specific fields to confirm.
+**Wire format** — the Speechmatics realtime schema was **live-validated against a real `SPEECHMATICS_API_KEY` on 2026-06-25** (message names, second-based timestamps, and the translation payload — Chinese returns as `cmn`). As with any provider, re-confirm with your own key during the pre-event dry run. See `docs/vendor-notes.md` (Speechmatics section) for the captured details.
 
 ### Setting the translation provider
 
@@ -276,7 +279,7 @@ ELEVENLABS_API_KEY=<key> TRANSLATE_API_KEY=<key> \
 |---|---|
 | `--audio` | One or more audio files (space-separated); any container ffmpeg can decode |
 | `--ref` | Reference transcript for WER/jargon-recall metrics (optional; omit to skip metrics) |
-| `--adapter` | `elevenlabs` or `assemblyai` (overrides `config.toml`); defaults to config value |
+| `--adapter` | `speechmatics`, `elevenlabs`, or `assemblyai` (overrides `config.toml`); defaults to config value |
 | `--langs` | Comma-separated target languages (overrides `translate.targets`) |
 | `--rtf` | Playback rate (overrides `harness.rtf`; keep at 1.0) |
 | `--loop N` | Repeat the audio N times (soak: use `--loop 4` on a 30-min file to reach ~2 h) |

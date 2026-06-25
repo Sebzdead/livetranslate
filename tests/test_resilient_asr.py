@@ -247,3 +247,43 @@ def test_resilient_forwards_on_draft_after_reconnect():
         )
 
     r.flush_and_stop(timeout_s=1)
+
+
+def test_cross_vendor_failover_after_give_up():
+    """Production path (Speechmatics primary -> ElevenLabs failover): when the
+    primary keeps failing to reconnect past give_up_after_s, ResilientASR must
+    switch to the failover_factory, start that adapter, and resume emitting."""
+    ring = RingBuffer(seconds=10)
+    primary = FakeAdapter(scripted=[])              # initial start succeeds
+    failover = FakeAdapter(scripted=[("final", "from failover.", 0, 200)])
+    failover.name = "failover-vendor"
+    primary_calls = {"n": 0}
+
+    def primary_factory():
+        primary_calls["n"] += 1
+        if primary_calls["n"] == 1:
+            return primary                          # first start works
+        raise ConnectionError("primary down")       # every reconnect fails
+
+    events, statuses = [], []
+    r = ResilientASR(primary_factory, ring=ring, overlap_ms=0,
+                     backoff_base_s=0.01, backoff_max_s=0.02,
+                     give_up_after_s=0.05, failover_factory=lambda: failover)
+    r.start(on_event=events.append, on_status=statuses.append)
+    for i in range(3):
+        ring.append(chunk(i)); r.send_audio(chunk(i))
+
+    r.force_reconnect()
+    deadline = time.monotonic() + 3.0
+    while r.name != "failover-vendor" and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    assert r.name == "failover-vendor", "never failed over to the failover vendor"
+    assert failover.started, "failover adapter was not started"
+    assert any("failing over" in s.message for s in statuses), \
+        f"no 'failing over' status; saw {[s.message for s in statuses]}"
+    # Audio fed after failover must reach the failover adapter and emit events.
+    ring.append(chunk(3)); r.send_audio(chunk(3))
+    assert any(e.text == "from failover." for e in events), "failover vendor produced no events"
+
+    r.flush_and_stop(timeout_s=1)

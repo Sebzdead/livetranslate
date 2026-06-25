@@ -68,6 +68,40 @@ def test_speechmatics_draft_rejects_more_than_five_targets(tmp_path):
         load_config(p)
 
 
+def test_speechmatics_draft_rejects_unsupported_target_lang(tmp_path):
+    # Live-validated 2026-06-25: Speechmatics RT rejects `ar` as a translation
+    # target from `en` with a protocol_error that kills the whole session.
+    # Guard it so a misconfig fails at load, not mid-event.
+    from livetranslate.config import load_config
+    p = tmp_path / "config.toml"
+    p.write_text(
+        '[session]\nsource_language = "en"\n'
+        '[asr]\nadapter = "speechmatics"\n'
+        '[translate]\ntargets = ["es", "ar"]\n'
+        'provider = "openai_chat"\n'
+        '[display]\ndraft_translation = true\n'
+    )
+    import pytest
+    with pytest.raises(ValueError, match="ar"):
+        load_config(p)
+
+
+def test_speechmatics_draft_allows_unsupported_target_when_draft_off(tmp_path):
+    # `ar` is fine for the LLM translator path; the guard only applies to the
+    # Speechmatics draft-translation path.
+    from livetranslate.config import load_config
+    p = tmp_path / "config.toml"
+    p.write_text(
+        '[session]\nsource_language = "en"\n'
+        '[asr]\nadapter = "speechmatics"\n'
+        '[translate]\ntargets = ["es", "ar"]\n'
+        'provider = "openai_chat"\n'
+        '[display]\ndraft_translation = false\n'
+    )
+    cfg = load_config(p)
+    assert cfg["translate"]["targets"] == ["es", "ar"]
+
+
 def test_six_targets_allowed_when_draft_translation_off(tmp_path):
     # The 5-cap only applies to Speechmatics' draft path; the LLM translator has
     # no such limit, so 6 targets are fine when draft_translation is off.

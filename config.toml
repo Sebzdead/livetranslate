@@ -8,9 +8,14 @@ chunk_ms = 100
 ring_seconds = 120
 
 [asr]
-adapter = "elevenlabs"          # "elevenlabs" | "assemblyai" | "speechmatics"
-failover = ""                   # optional: "assemblyai"
-give_up_after_s = 0             # 0 = never
+adapter = "speechmatics"        # "elevenlabs" | "assemblyai" | "speechmatics"
+failover = "elevenlabs"         # cross-vendor fallback when the primary stays down
+# Seconds the primary may keep failing to reconnect before we switch to `failover`.
+# 0 = never fail over (retry the primary forever). Failover is a ONE-WAY switch for
+# the rest of the session, so keep this patient enough to ride out a transient blip
+# (Speechmatics reconnect backoff gets ~6-7 attempts in 30s) but short enough that a
+# truly-dead primary doesn't blank captions for long. The ring (120s) covers the gap.
+give_up_after_s = 30            # 0 = never
 overlap_ms = 2000
 # 0 = off; set 5400 (90 min) for ElevenLabs per docs/vendor-notes.md; AssemblyAI hard limit is 3 h
 max_session_s = 0

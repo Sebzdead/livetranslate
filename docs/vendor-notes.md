@@ -742,7 +742,13 @@ temperature = 0.2
 
 ## Speechmatics Realtime (RT v2)
 
-**Date verified:** SCHEMA-DERIVED 2026-06-23 — ⚠️ NOT yet captured live. Validate against a live `SPEECHMATICS_API_KEY` (Task 1 Step 3) before the event.
+**Date verified:** ✅ LIVE-VALIDATED 2026-06-25 against a real `SPEECHMATICS_API_KEY` (`harness/probe_speechmatics.py`, EU endpoint, Comintern recording). Schema below confirmed against live capture. Was SCHEMA-DERIVED 2026-06-23.
+
+**Live findings (2026-06-25):**
+- Happy path matches the adapter exactly: `RecognitionStarted`, `AddPartialTranscript`/`AddTranscript`, `AddPartialTranslation`/`AddTranslation`, `AudioAdded`, `EndOfTranscript` all as schematized. Timestamps are **seconds (float)** in `metadata.start_time`/`end_time` (e.g. `0.36`) — adapter `× 1000` is correct.
+- **`cmn` confirmed**: requested `cmn`, server returns `language: "cmn"` (→ app `zh`). `es` likewise round-trips.
+- **`ar` (Arabic) is NOT a supported translation target from `en`.** Server replies `Error type=protocol_error reason="Feature Validation Failed: target lang [ar] is not supported for translation from [en]"` and this **aborts `StartRecognition`** — no `RecognitionStarted`, no transcripts. Guarded in `config.py` (`SPEECHMATICS_UNSUPPORTED_TARGETS`): rejected at config load when `adapter=speechmatics` + `draft_translation=true`. The LLM translator still handles `ar` normally; only the Speechmatics draft path is affected.
+- New non-fatal message observed: `Info type=concurrent_session_usage` (account quota = 2 concurrent). Adapter already ignores `Info`. `RecognitionStarted` also carries `orchestrator_version` + `language_pack_info` (ignored); `AddTranscript` word alternatives carry a `language` field (ignored). None affect parsing.
 
 **Sources consulted (2026-06-23):**
 - <https://docs.speechmatics.com/rt-api-ref>
@@ -772,12 +778,12 @@ temperature = 0.2
 - `transcription_config.additional_vocab`: list of `{"content": "...", "sounds_like": [...]}` or bare strings. **Transcription only** — does not affect translation. ⚠️ Latency/memory penalty for large lists; cap conservatively (default 50).
 
 ### Language codes (app ↔ Speechmatics)
-- Source: `en`→`en`, `de`→`de`. Targets identity except **`zh`→`cmn`**. ⚠️ Confirm `ar` (Arabic) target support live — the public docs were ambiguous ("bilingual pack").
+- Source: `en`→`en`, `de`→`de`. Targets identity except **`zh`→`cmn`** (confirmed live). **`ar` is unsupported as a translation target from `en`** (confirmed live — aborts the session; see Live findings above).
 
 ### Live validation checklist (run with a real key before the event)
-- [ ] Connect to `wss://eu.rt.speechmatics.com/v2/`; confirm `RecognitionStarted` arrives.
-- [ ] Confirm `metadata.transcript` + seconds timestamps match `tests/fixtures/speechmatics_messages.json`; fix the fixtures + adapter if not.
-- [ ] Confirm `AddTranslation.results[].content` shape and that `cmn` is the Chinese code; confirm `ar` is accepted as a target (or note unsupported).
+- [x] Connect to `wss://eu.rt.speechmatics.com/v2/`; confirm `RecognitionStarted` arrives. ✅ 2026-06-25
+- [x] Confirm `metadata.transcript` + seconds timestamps match `tests/fixtures/speechmatics_messages.json`. ✅ matches (timestamps in seconds; adapter parses `metadata.transcript`/`start_time`/`end_time` only — all present).
+- [x] Confirm `AddTranslation.results[].content` shape and that `cmn` is the Chinese code; confirm `ar`. ✅ shape matches, `cmn` confirmed, **`ar` unsupported** (guarded in config).
 - [ ] Measure `additional_vocab` latency penalty at the real glossary size; tune `asr.speechmatics.additional_vocab_max`.
 - [ ] Confirm `max_delay` behavior (lower = faster partials, more revisions).
 - [ ] Update the "Date verified" line to a live date once confirmed.

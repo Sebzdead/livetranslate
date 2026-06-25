@@ -146,6 +146,7 @@ async function refreshConfig() {
   $("cfg-device").value = parseTomlValue(body.text, "audio", "device_substring");
   setSelect("cfg-srclang", parseTomlValue(body.text, "session", "source_language"));
   setSelect("cfg-adapter", parseTomlValue(body.text, "asr", "adapter"));
+  setSelect("cfg-failover", parseTomlValue(body.text, "asr", "failover"));
   const targets = (body.text.match(/targets\s*=\s*\[([^\]]*)\]/) || [, ""])[1];
   $("cfg-targets").value = targets.replace(/["\s]/g, "");
 }
@@ -157,6 +158,7 @@ async function saveConfigFields() {
       "audio.device_substring": $("cfg-device").value,
       "session.source_language": $("cfg-srclang").value,
       "asr.adapter": $("cfg-adapter").value,
+      "asr.failover": $("cfg-failover").value,
       "translate.targets": targets,
     }});
     setMsg("cfg-msg", "Saved.", true);
@@ -270,9 +272,8 @@ async function generateGlossary() {
                         { filename: f.name, content_b64 });
     glossaryRows = parseGlossary(r.text);
     renderGlossary();
-    $("glossary-counts").textContent = "+" + r.added + " drafted, " + r.skipped
-      + " already present — unsaved; review and save";
-    setMsg("glossary-msg", "Drafted " + r.added + " terms from " + f.name + ".", true);
+    $("glossary-counts").textContent = r.added + " terms drafted (session glossary, max 50) — unsaved; review and save";
+    setMsg("glossary-msg", "Drafted " + r.added + " terms from " + f.name + " — previous glossary replaced.", true);
   } catch (e) { setMsg("glossary-msg", e.message, false); }
   btn.disabled = false;
 }
