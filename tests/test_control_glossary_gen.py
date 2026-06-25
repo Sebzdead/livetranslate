@@ -193,21 +193,35 @@ def b64(text):
     return base64.b64encode(text.encode()).decode()
 
 
-def test_generate_endpoint_merges_and_reports(srv):
+def test_generate_endpoint_replaces_and_reports(srv):
     base, state = srv
     state.llm_post = lambda url, headers, body, timeout_s: {"text": (
         "term_src\tes\tfr\tde\tpt\tar\tzh\tpriority\tnotes\n"
         "Zimmerwald\t\t\t\t\t\t\t1\t\n"
-        "Comintern\tdupe\t\t\t\t\t\t1\t\n")}
+        "Rosa Luxemburg\t\t\t\t\t\t\t1\t\n")}
     code, body = post(base, "/api/glossary/generate",
                       {"filename": "notes.txt", "content_b64": b64("talk notes")})
     assert code == 200
-    assert (body["added"], body["skipped"]) == (1, 1)
+    assert body["added"] == 2
+    assert body["skipped"] == 0
     assert body["terms"] == 2
     assert "Zimmerwald" in body["text"]
-    assert "dupe" not in body["text"]                 # operator's Comintern row won
+    assert "Rosa Luxemburg" in body["text"]
     # nothing written to disk: review-then-save
     assert "Zimmerwald" not in (state.root / "glossary.tsv").read_text()
+
+
+def test_generate_endpoint_caps_at_50(srv):
+    base, state = srv
+    # LLM returns 60 terms; endpoint should cap at 50
+    rows = "\n".join(f"Term{i:03d}\t\t\t\t\t\t\t2\t" for i in range(60))
+    state.llm_post = lambda url, headers, body, timeout_s: {"text": (
+        "term_src\tes\tfr\tde\tpt\tar\tzh\tpriority\tnotes\n" + rows)}
+    code, body = post(base, "/api/glossary/generate",
+                      {"filename": "notes.txt", "content_b64": b64("long talk")})
+    assert code == 200
+    assert body["terms"] == 50
+    assert body["keyterms"] == 50
 
 
 def test_generate_endpoint_requires_key(srv, tmp_path):

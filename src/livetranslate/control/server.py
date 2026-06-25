@@ -240,19 +240,17 @@ class _Handler(BaseHTTPRequestHandler):
             data = base64.b64decode(payload["content_b64"])
             notes = glossary_gen.extract_text(data, str(payload.get("filename", "")))
             targets = [str(t) for t in tcfg["targets"]]
-            gp = self.state.glossary_path()
-            existing = gp.read_text(encoding="utf-8") if gp.exists() else ""
-            merged, added, skipped = glossary_gen.generate(
-                notes, targets, existing, tcfg, api_key, post=self.state.llm_post)
+            tsv, n_terms, _ = glossary_gen.generate(
+                notes, targets, tcfg, api_key, post=self.state.llm_post)
         except ValueError as exc:
             self._json(400, {"error": str(exc)})
             return
-        result = files.validate_glossary_text(merged)
+        result = files.validate_glossary_text(tsv)
         if result["problems"]:
             self._json(502, {"error": "model produced invalid TSV: "
                              + "; ".join(result["problems"])})
             return
-        self._json(200, {"text": merged, "added": added, "skipped": skipped,
+        self._json(200, {"text": tsv, "added": n_terms, "skipped": 0,
                          "terms": result["terms"], "keyterms": result["keyterms"]})
 
     def _post_start(self):

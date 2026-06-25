@@ -1,9 +1,10 @@
-"""Generate glossary.tsv rows from presenter notes via the configured translate LLM.
+"""Generate a session glossary from presenter notes via the configured translate LLM.
 
 The operator uploads a notes document (plain text or PDF); we ask the
-[translate] provider (DeepSeek by default) for new rows, merge them UNDER the
-existing glossary (the operator's hand-edited rows always win), and hand the
-merged TSV back for review — nothing is written to disk here.
+[translate] provider (DeepSeek by default) for the top KEYTERMS_CAP most
+ASR-critical terms for this session. The result REPLACES (not merges with)
+any previous glossary — each session gets a fresh slate. Nothing is written
+to disk here; the operator reviews and saves manually.
 """
 import csv
 import io
@@ -17,8 +18,9 @@ log = logging.getLogger(__name__)
 
 HEADER = ["term_src"] + LANG_COLS + ["priority", "notes"]
 MAX_NOTES_CHARS = 60_000   # keep the prompt well inside the model context
+KEYTERMS_CAP = 50          # ElevenLabs realtime hard cap
 
-SYSTEM_TEMPLATE = """You extract a translation glossary from presenter notes for a live conference-interpretation pipeline. The ASR vendor boosts recognition of each source term and the translator is REQUIRED to use your target renderings, so a wrong row is worse than no row: precision over recall.
+SYSTEM_TEMPLATE = """You extract the most ASR-critical terms from presenter notes for a live conference-interpretation pipeline. The ASR vendor boosts recognition of each source term (hard cap: {cap} terms), so choose terms where mis-recognition would cause genuine confusion — not everyday words.
 
 Output STRICT TSV and nothing else — no markdown, no code fences, no commentary.
 First line must be exactly this tab-separated header:
@@ -26,13 +28,14 @@ term_src	es	fr	de	pt	ar	zh	priority	notes
 Then one row per term, tab-separated, in the same column order.
 
 Rules:
-- Collect terms the speaker will actually say aloud: people, places, organizations, acronyms, and field-specific technical phrases. Skip everyday words, bibliography-only items, citation formatting, and page numbers.
+- Extract at most {cap} terms total — the vendor hard-caps at {cap}. Use all {cap} slots wisely; a short abstract may only justify 10-20.
+- Focus on terms where ASR failure hurts most: proper nouns with unusual phonetics or spelling, acronyms, field-specific technical phrases, foreign-language borrowings, organisation names, place names with irregular orthography.
+- Skip everyday vocabulary, common place names, bibliography-only citations, and page numbers.
 - Fill ONLY these language columns: {targets}. Leave every other language column empty.
-- An empty target cell means "keep the source term untranslated". Proper nouns usually stay untranslated — leave their cells empty — except places with established exonyms or organizations with official published names in that language.
-- Technical terms: use the canonical rendering established in that language's literature of the field, never a fresh literal translation. When two renderings genuinely compete or you are unsure, leave the cell empty and write "verify" in notes.
-- priority: 1 = must-recognize (the talk's core jargon, names central to the argument, unusual phonetics or spelling); 2 = nice-to-have (well-known places, common org names).
-- Aim for 40-80 rows for a full talk; a short abstract may only justify 10-20.
-- Do not repeat any term from the EXISTING TERMS list."""
+- An empty target cell means "keep the source term untranslated". Proper nouns usually stay untranslated — leave their cells empty — except places with established exonyms or organisations with official published names in that language.
+- Technical terms: use the canonical rendering in that language's literature. When two renderings genuinely compete or you are unsure, leave the cell empty and write "verify" in notes.
+- priority: 1 = must-recognize (core jargon, names central to the argument, unusual phonetics); 2 = nice-to-have.
+- Rank rows: all priority-1 rows first, then priority-2. Within a tier, rank by ASR criticality (hardest to recognize first)."""
 
 
 # ---------- input extraction ----------
@@ -55,12 +58,10 @@ def extract_text(data: bytes, filename: str = "") -> str:
 
 # ---------- LLM call ----------
 
-def build_messages(notes: str, targets: list, existing_terms: list) -> list:
-    system = SYSTEM_TEMPLATE.format(targets=", ".join(targets))
-    user_lines = ["TARGET LANGUAGES: " + ", ".join(targets)]
-    if existing_terms:
-        user_lines.append("EXISTING TERMS (do not repeat): " + "; ".join(existing_terms))
-    user_lines.append("NOTES:\n" + notes[:MAX_NOTES_CHARS])
+def build_messages(notes: str, targets: list) -> list:
+    system = SYSTEM_TEMPLATE.format(targets=", ".join(targets), cap=KEYTERMS_CAP)
+    user_lines = ["TARGET LANGUAGES: " + ", ".join(targets),
+                  "NOTES:\n" + notes[:MAX_NOTES_CHARS]]
     return [{"role": "system", "content": system},
             {"role": "user", "content": "\n\n".join(user_lines)}]
 
@@ -148,15 +149,24 @@ def merge(existing_text: str, new_rows: list) -> tuple:
     return buf.getvalue(), len(added), skipped
 
 
-def generate(notes: str, targets: list, existing_text: str, cfg, api_key: str,
-             post=None) -> tuple:
-    """Full pipeline: prompt → LLM → parse → merge. Returns (tsv, added, skipped)."""
-    existing_terms = [r.get("term_src", "") for r in
-                      csv.DictReader(existing_text.splitlines(), delimiter="\t")] \
-        if existing_text.strip() else []
-    messages = build_messages(notes, targets, existing_terms)
+def generate(notes: str, targets: list, cfg, api_key: str,
+             post=None, cap: int = KEYTERMS_CAP) -> tuple:
+    """Full pipeline: prompt → LLM → parse → rank → cap.
+
+    Returns (tsv_text, n_terms, 0). The result REPLACES any existing glossary;
+    there is no merge. Terms are capped at `cap` (default: KEYTERMS_CAP=50).
+    """
+    messages = build_messages(notes, targets)
     reply = call_llm(cfg, api_key, messages, post=post)
     rows = parse_reply(reply, targets)
     if not rows:
         raise ValueError("the model returned no usable glossary rows")
-    return merge(existing_text, rows)
+    rows.sort(key=lambda r: (r["priority"], _norm(r["term_src"])))
+    rows = rows[:cap]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=HEADER, delimiter="\t",
+                            extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({col: (row.get(col) or "").strip() for col in HEADER})
+    return buf.getvalue(), len(rows), 0
