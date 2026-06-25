@@ -17,8 +17,11 @@ failover = "elevenlabs"         # cross-vendor fallback when the primary stays d
 # truly-dead primary doesn't blank captions for long. The ring (120s) covers the gap.
 give_up_after_s = 30            # 0 = never
 overlap_ms = 2000
-# 0 = off; set 5400 (90 min) for ElevenLabs per docs/vendor-notes.md; AssemblyAI hard limit is 3 h
-max_session_s = 0
+# Proactively rotate the ASR WebSocket after this many seconds (0 = off). Speechmatics'
+# max session duration is undocumented (docs/vendor-notes.md), so rotate at 4 h as a safety
+# margin for long events. Note: if failover to ElevenLabs is active, its ~90 min cap (and
+# AssemblyAI's ~3 h) is hit first — ResilientASR reconnects automatically on the vendor limit.
+max_session_s = 14400          # 4 hours
 
 [asr.elevenlabs]
 # endpoint/model fields filled in after doc verification (§13)
