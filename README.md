@@ -242,6 +242,20 @@ Optional flags:
 | `--resume sessions/<dir>` | Resume a crashed session; rebuilds displays byte-identical |
 | `--log-level DEBUG` | Verbose logging (default: INFO) |
 
+### Saved transcripts
+
+During a run, every sentence and translation is written live to `sessions/<timestamp>/` as append-only JSONL (used by `--resume`). When the session ends, a **human-readable transcript** is also exported to `transcripts/session-N/` (numbered `session-1`, `session-2`, …) — one plain-text file per language, one sentence per line:
+
+```
+transcripts/session-1/
+  english.txt      # the original transcript (named after [session].source_language)
+  spanish.txt      # one file per translate.targets language
+  french.txt
+  ...
+```
+
+Lines stay aligned across languages by sentence; if a sentence had no successful translation, that line reads `[no translation]`. The `transcripts/` folder is gitignored.
+
 ### Display URLs (served at `[display] host:port`)
 
 | URL | Audience |

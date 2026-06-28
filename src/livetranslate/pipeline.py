@@ -171,3 +171,23 @@ class Pipeline:
         if self.display:
             self.display.stop()
         self.store.close()
+        self._export_transcripts()
+
+    def _export_transcripts(self) -> None:
+        """Render readable per-language transcripts at session end (best-effort:
+        an export failure must never disrupt shutdown). Runs after store.close()
+        so it reads the fully-flushed session JSONL."""
+        from pathlib import Path
+
+        from .export import export_session_transcripts
+        try:
+            base = Path(self.cfg["session"]["output_dir"]).parent / "transcripts"
+            out = export_session_transcripts(
+                self.store.session_dir,
+                self.cfg["session"]["source_language"],
+                self.cfg["translate"]["targets"],
+                base_dir=base)
+            if out is not None:
+                log.info("transcripts exported to %s", out)
+        except Exception:   # noqa: BLE001 — export must never crash shutdown
+            log.warning("transcript export failed", exc_info=True)

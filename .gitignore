@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 recordings/
 sessions/
+transcripts/
 .DS_Store
 .env
 
